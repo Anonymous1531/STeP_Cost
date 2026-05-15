@@ -1,0 +1,148 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="exp_mecanum">
+    <static>false</static>
+    <link name="chassis">
+      <inertial>
+        <mass>80.0</mass>
+        <inertia>
+          <ixx>1.26</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.16</iyy><iyz>0</iyz>
+          <izz>4.81</izz>
+        </inertia>
+      </inertial>
+      <collision name="body_box">
+        <pose>-0.03 -0.132 0.9 0 0 0</pose>
+        <geometry>
+          <box><size>2.0 3.2 1.8</size></box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 -0.084 1.57 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.6 0.6 0.6</scale>
+            <uri>model://MecanumLift/meshes/MecanumLift.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+
+    <link name="front_right_wheel">
+      <pose>0.858 -0.552 0.186 0 0 0</pose>
+      <inertial>
+        <mass>2</mass>
+        <inertia>
+          <ixx>0.145</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.145</iyy><iyz>0</iyz>
+          <izz>0.125</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><sphere><radius>0.18</radius></sphere></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://MecanumLift/meshes/mecanum_wheel_right.STL</uri>
+            <scale>0.0036 0.0036 0.0036</scale>
+          </mesh>
+        </geometry>
+        <material><ambient>0 0 0</ambient><diffuse>0 0 0</diffuse></material>
+      </visual>
+    </link>
+
+    <link name="rear_right_wheel">
+      <pose>-0.93 -0.552 0.186 0 0 0</pose>
+      <inertial>
+        <mass>2</mass>
+        <inertia>
+          <ixx>0.145</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.145</iyy><iyz>0</iyz>
+          <izz>0.125</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><sphere><radius>0.18</radius></sphere></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://MecanumLift/meshes/mecanum_wheel_left.STL</uri>
+            <scale>0.0036 0.0036 0.0036</scale>
+          </mesh>
+        </geometry>
+        <material><ambient>0 0 0</ambient><diffuse>0 0 0</diffuse></material>
+      </visual>
+    </link>
+
+    <link name="front_left_wheel">
+      <pose>0.858 0.282 0.186 0 0 0</pose>
+      <inertial>
+        <mass>2</mass>
+        <inertia>
+          <ixx>0.145</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.145</iyy><iyz>0</iyz>
+          <izz>0.125</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><sphere><radius>0.18</radius></sphere></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://MecanumLift/meshes/mecanum_wheel_left.STL</uri>
+            <scale>0.0036 0.0036 0.0036</scale>
+          </mesh>
+        </geometry>
+        <material><ambient>0 0 0</ambient><diffuse>0 0 0</diffuse></material>
+      </visual>
+    </link>
+
+    <link name="rear_left_wheel">
+      <pose>-0.93 0.282 0.186 0 0 0</pose>
+      <inertial>
+        <mass>2</mass>
+        <inertia>
+          <ixx>0.145</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>0.145</iyy><iyz>0</iyz>
+          <izz>0.125</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry><sphere><radius>0.18</radius></sphere></geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://MecanumLift/meshes/mecanum_wheel_right.STL</uri>
+            <scale>0.0036 0.0036 0.0036</scale>
+          </mesh>
+        </geometry>
+        <material><ambient>0 0 0</ambient><diffuse>0 0 0</diffuse></material>
+      </visual>
+    </link>
+
+    <joint name="front_left_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>front_left_wheel</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-1e308</lower><upper>1e308</upper></limit></axis>
+    </joint>
+    <joint name="front_right_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>front_right_wheel</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-1e308</lower><upper>1e308</upper></limit></axis>
+    </joint>
+    <joint name="rear_left_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>rear_left_wheel</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-1e308</lower><upper>1e308</upper></limit></axis>
+    </joint>
+    <joint name="rear_right_wheel_joint" type="revolute">
+      <parent>chassis</parent>
+      <child>rear_right_wheel</child>
+      <axis><xyz>0 1 0</xyz><limit><lower>-1e308</lower><upper>1e308</upper></limit></axis>
+    </joint>
+  </model>
+</sdf>
