@@ -211,14 +211,14 @@ Example:
 
 ```bash
 export TURTLEBOT3_MODEL=waffle
-ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
+ros2 launch turtlebot3_gazebo turtlebot3_factory.launch.py
 ```
 
 In another terminal:
 
 ```bash
 source ~/STeP_Cost/install/setup.bash
-ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True 
 ```
 
 ### 2. Run the adaptive cost publisher
