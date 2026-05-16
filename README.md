@@ -2,9 +2,9 @@
 
 ## Overview
 
-STeP-Cost is a ROS 2 Humble and Navigation2-based framework for adaptive spatiotemporal costmap updates in mobile robot navigation.
+STeP-Cost is a ROS 2 Humble and Navigation2-based framework for adaptive costmap TTL policy learning in mobile robot navigation.
 
-The framework detects unexpected obstacles during navigation, classifies obstacle semantics with a vision-language model (VLM), and updates obstacle persistence parameters through an LLM-based TTL adaptation module. The resulting object positions and adaptive costs are projected onto Nav2 costmaps through a custom costmap layer.
+The framework detects detour-inducing obstacles during navigation, classifies obstacle semantics with a Vision-Language Model (VLM), and updates compound tag-wise Time-to-Live (TTL) values through an LLM-based post-mission policy update module. The resulting obstacle positions and adaptive residual costs are projected onto Nav2 global costmaps through a custom costmap layer.
 
 This repository has been organized for reproducible experiments with TurtleBot3, Gazebo, ROS 2 Humble, and Ubuntu 22.04.
 
@@ -12,8 +12,8 @@ This repository has been organized for reproducible experiments with TurtleBot3,
 
 This repository contains two project-specific ROS 2 packages and supporting experiment scripts:
 
-- **policy_bridge**: Runtime bridge node for unexpected obstacle detection, VLM-based semantic tagging, speed-aware obstacle classification, mission logging, and LLM-based TTL adaptation.
-- **my_costmap_layers**: Nav2 costmap plugin package that applies detected obstacle positions to the global costmap.
+- **policy_bridge**: Runtime bridge node for detour-gated event detection, VLM-based semantic category tagging, GMM-based motion class estimation, mission summary logging, and LLM-based post-mission TTL policy updates.
+- **my_costmap_layers**: Nav2 costmap plugin package that applies adaptive residual obstacle costs to the global costmap.
 - **experiment_suite**: Learning and evaluation scripts for running repeated navigation experiments with dynamic obstacle scenarios.
 - **VLM/LLM utilities**: Standalone Gemini-based scripts for visual obstacle tagging and mission-level TTL policy updates.
 
@@ -23,28 +23,27 @@ The repository also includes TurtleBot3 and TurtleBot3 simulation packages for c
 
 ### Overview
 
-`policy_bridge` implements the main runtime node that monitors navigation behavior, detects unexpected obstacles, captures visual evidence, classifies obstacle tags, and publishes obstacle positions for costmap integration.
+`policy_bridge` implements the main runtime node that monitors navigation behavior, detects detour events, captures visual evidence, classifies obstacle compound tags, and publishes obstacle positions for costmap integration.
 
 ### Features
 
-- Unexpected obstacle detection from LiDAR, map, robot pose, and global plan data
-- Detour-aware triggering based on path-length changes
-- RGB image capture for VLM-based semantic classification
-- Speed-aware obstacle tagging using online samples and a lightweight GMM classifier
-- Mission summary logging for later TTL adaptation
-- Optional online VLM-based cost persistence updates
-- Optional LLM-based mission-end TTL refinement with lightweight case retrieval
-- Automatic global costmap clearing when temporary costs expire
+- Detour-gated event detection based on global path length changes
+- RGB image capture for VLM-based semantic category classification
+- LiDAR-based speed estimation and category-conditioned GMM motion class inference
+- Compound tag construction (`category:motion`) per detour event
+- Mission summary logging for post-mission TTL adaptation
+- LLM-based TTL update proposal generation with confidence-based acceptance policy
+- Automatic global costmap clearing when residual costs expire
 
 ### Main Node
 
-- `policy_bridge`: Runs the unexpected-obstacle detector and adaptive cost publisher.
+- `policy_bridge`: Runs the detour-event detector and adaptive cost publisher.
 
 ### Important Published Topics
 
 - `/object_world_positions` (`geometry_msgs/PoseArray`): Active obstacle positions in the map frame
 - `/vlm/result` (`std_msgs/String`): VLM classification result for captured obstacle events
-- `/llm_decay/result` (`std_msgs/String`): LLM-based TTL adaptation result
+- `/llm_decay/result` (`std_msgs/String`): LLM-based TTL update result
 - `/cmd_vel` (`geometry_msgs/Twist`): Optional velocity command output used during controlled measurement steps
 
 ### Important Subscribed Topics
@@ -55,7 +54,7 @@ The repository also includes TurtleBot3 and TurtleBot3 simulation packages for c
 - `/amcl_pose` (`geometry_msgs/PoseWithCovarianceStamped`): Robot pose estimate
 - `/camera/image_raw` (`sensor_msgs/Image`): RGB camera stream for VLM evidence capture
 - `/camera/depth/image_raw` (`sensor_msgs/Image`): Optional depth stream
-- `/odom` (`nav_msgs/Odometry`): Odometry used for speed-aware classification
+- `/odom` (`nav_msgs/Odometry`): Odometry used for speed estimation
 - `/navigate_to_pose/_action/status`: Nav2 goal status
 - `/navigate_through_poses/_action/status`: Nav2 multi-goal status
 
@@ -63,7 +62,7 @@ The repository also includes TurtleBot3 and TurtleBot3 simulation packages for c
 
 ### Overview
 
-`my_costmap_layers` provides a custom Nav2 costmap plugin that receives obstacle positions from `policy_bridge` and stamps obstacle costs into the global costmap.
+`my_costmap_layers` provides a custom Nav2 costmap plugin that receives obstacle positions from `policy_bridge` and applies residual obstacle costs to the global costmap.
 
 ### Features
 
@@ -76,7 +75,7 @@ The repository also includes TurtleBot3 and TurtleBot3 simulation packages for c
 
 ### Main Layer
 
-- **ObjectAvoidanceLayer**: Applies temporary obstacle costs around detected object positions.
+- **ObjectAvoidanceLayer**: Applies temporary residual costs around detected obstacle positions.
 
 ### Example Nav2 Configuration
 
@@ -101,11 +100,11 @@ global_costmap:
 
 ### `vlm_gemini_v1.py`
 
-This script classifies captured obstacle-event images into a closed set of navigation tags. It uses the current decay table to restrict allowed tags and returns structured JSON output.
+This script classifies captured obstacle-event images into a predefined set of semantic category tags. It uses the current TTL table to restrict allowed tags and returns structured JSON output including tag, confidence, and natural-language evidence.
 
 ### `llm_decay_gemini_v3.py`
 
-This script updates tag-specific TTL values after a mission. It uses mission summaries, previous TTL entries, and optional lightweight case-based retrieval to suggest updated persistence values.
+This script updates compound tag-wise TTL values after each mission. It uses mission summaries, the current TTL table, and retrieval-augmented past cases to generate structured TTL update proposals with confidence scores and natural-language rationale.
 
 ### API Key Configuration
 
@@ -117,7 +116,7 @@ export GEMINI_API_KEY="<your_api_key>"
 
 Alternatively, store the key in one of the following local files:
 
-```bash
+```
 ~/.config/policy_bridge/gemini_api_key.txt
 ~/.config/gemini_api_key.txt
 ~/.gemini_api_key
@@ -158,7 +157,7 @@ Optional arguments:
 --methods <method_name>
 --scenarios <scenario_name>
 --freeze-learning
---repeats 10
+--repeats 30
 --seed 42
 ```
 
@@ -182,7 +181,7 @@ rosdep install --from-paths src --ignore-src -r -y
 ### 3. Install Python dependencies
 
 ```bash
-pip install google-genai pydantic numpy opencv-python pillow
+pip install google-genai pydantic numpy opencv-python pillow scikit-learn
 ```
 
 Depending on your environment, additional packages such as `cv_bridge`, `tf_transformations`, and Nav2-related ROS packages may need to be installed through `apt`.
@@ -218,7 +217,7 @@ In another terminal:
 
 ```bash
 source ~/STeP_Cost/install/setup.bash
-ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True 
+ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True
 ```
 
 ### 2. Run the adaptive cost publisher
@@ -240,10 +239,9 @@ ros2 topic echo /llm_decay/result
 
 By default, runtime logs and learned data are stored under `~/.ros/`:
 
-- `~/.ros/decay_table.json`: Tag-specific TTL table
-- `~/.ros/mission_summary.json`: Mission event log
-- `~/.ros/mission_summary_out.json`: Processed mission summary
-- `~/.ros/llm_decay_rag_archive.json`: Optional case-based retrieval archive
+- `~/.ros/decay_table.json`: Compound tag-wise TTL table
+- `~/.ros/mission_summary.json`: Per-mission detour event log
+- `~/.ros/llm_decay_rag_archive.json`: RAG-based past proposal archive
 - `~/.ros/gmm_samples.json`: Speed-classifier samples
 - `~/.ros/detour_events/`: Captured obstacle-event images
 
@@ -287,7 +285,6 @@ STeP_Cost/
         │   └── costmap_plugins.xml
         ├── CMakeLists.txt
         └── package.xml
-
 ```
 
 ## 🔗 Dependencies
@@ -324,6 +321,7 @@ STeP_Cost/
 - `numpy`
 - `opencv-python`
 - `pillow`
+- `scikit-learn`
 
 ## 🔧 Troubleshooting
 
@@ -338,7 +336,7 @@ STeP_Cost/
 
 - Check that `/scan`, `/map`, `/plan`, and `/amcl_pose` are being published.
 - Verify that `policy_bridge` is running.
-- Confirm that unexpected obstacle detection is enabled.
+- Confirm that detour-gated event detection is enabled.
 - Use `ros2 topic echo /object_world_positions` to inspect outputs.
 
 ### VLM classification does not run
