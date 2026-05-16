@@ -155,7 +155,6 @@ Optional arguments:
 
 ```bash
 --methods <method_name>
---scenarios <scenario_name>
 --freeze-learning
 --repeats 30
 --seed 42
