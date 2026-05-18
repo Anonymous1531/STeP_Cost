@@ -4,82 +4,49 @@
 
 STeP-Cost is a ROS 2 Humble and Navigation2-based framework for adaptive costmap TTL policy learning in mobile robot navigation.
 
-The framework detects detour-inducing obstacles during navigation, classifies obstacle semantics with a Vision-Language Model (VLM), and updates compound tag-wise Time-to-Live (TTL) values through an LLM-based post-mission policy update module. The resulting obstacle positions and adaptive residual costs are projected onto Nav2 global costmaps through a custom costmap layer.
+The framework identifies detour-inducing obstacle situations during navigation, classifies obstacle semantics with a Vision-Language Model (VLM), and updates compound tag-wise Time-to-Live (TTL) values through an LLM-based post-mission policy update module. The resulting obstacle positions and adaptive residual costs are applied to the Nav2 global costmap through a custom costmap layer.
 
-This repository has been organized for reproducible experiments with TurtleBot3, Gazebo, ROS 2 Humble, and Ubuntu 22.04.
+**STeP-Cost is designed as a plug-in addition to an existing Nav2 stack.** It does not replace the planner or controller — it only extends the global costmap with a learned cost persistence policy. You can integrate `policy_bridge` and `my_costmap_layers` into your own ROS 2 navigation environment without using the experiment scripts.
 
-## 📦 Main Components
+This repository contains two parts:
 
-This repository contains two project-specific ROS 2 packages and supporting experiment scripts:
+- **Plugin** (`src/`, `vlm_gemini_v1.py`, `llm_decay_gemini_v3.py`, `obstacle_speed_classifier.py`): The core STeP-Cost components. Use these to integrate STeP-Cost into your own environment.
+- **Experiment Suite** (`experiment_suite/`): Scripts used to reproduce the paper experiments in a specific TurtleBot3/Gazebo warehouse environment. These are environment-specific and are not required for plugin use.
 
-- **policy_bridge**: Runtime bridge node for detour-gated event detection, VLM-based semantic category tagging, GMM-based motion class estimation, mission summary logging, and LLM-based post-mission TTL policy updates.
-- **my_costmap_layers**: Nav2 costmap plugin package that applies adaptive residual obstacle costs to the global costmap.
-- **experiment_suite**: Learning and evaluation scripts for running repeated navigation experiments with dynamic obstacle scenarios.
-- **VLM/LLM utilities**: Standalone Gemini-based scripts for visual obstacle tagging and mission-level TTL policy updates.
+---
 
-The repository also includes TurtleBot3 and TurtleBot3 simulation packages for convenience and reproducibility.
+## 📦 Components
 
-## Package 1: policy_bridge
+### Core Plugin
+- **`policy_bridge`**: Runtime ROS 2 node for detour-gated event detection, VLM-based semantic category estimation, GMM-based motion class estimation, mission summary logging, and LLM-based post-mission TTL policy updates.
+- **`my_costmap_layers`**: Nav2 costmap plugin that applies adaptive residual obstacle costs to the global costmap.
+- **`vlm_gemini_v1.py`**: Standalone VLM script for visual obstacle category classification.
+- **`llm_decay_gemini_v3.py`**: Standalone LLM script for mission-level compound tag-wise TTL policy updates.
+- **`obstacle_speed_classifier.py`**: GMM-based speed classifier for category-conditioned motion class estimation.
 
-### Overview
+### Experiment Suite (Paper Reproduction Only)
+- **`experiment_suite/`**: Learning and evaluation scripts for the specific TurtleBot3/Gazebo warehouse environment used in the paper. Requires the paper's simulation environment and is not intended for direct reuse in other environments.
 
-`policy_bridge` implements the main runtime node that monitors navigation behavior, detects detour events, captures visual evidence, classifies obstacle compound tags, and publishes obstacle positions for costmap integration.
+---
 
-### Features
+## 🔌 Using STeP-Cost as a Plugin
 
-- Detour-gated event detection based on global path length changes
-- RGB image capture for VLM-based semantic category classification
-- LiDAR-based speed estimation and category-conditioned GMM motion class inference
-- Compound tag construction (`category:motion`) per detour event
-- Mission summary logging for post-mission TTL adaptation
-- LLM-based TTL update proposal generation with confidence-based acceptance policy
-- Automatic global costmap clearing when residual costs expire
+This section describes how to integrate STeP-Cost into your own ROS 2 navigation environment.
 
-### Main Node
+### Step 1: Clone and build
 
-- `policy_bridge`: Runs the detour-event detector and adaptive cost publisher.
+```bash
+git clone https://github.com/Anonymous1531/STeP_Cost.git ~/STeP_Cost
+cd ~/STeP_Cost
+rosdep install --from-paths src --ignore-src -r -y
+pip install google-genai pydantic numpy opencv-python pillow scikit-learn
+colcon build --packages-select policy_bridge my_costmap_layers
+source install/setup.bash
+```
 
-### Important Published Topics
+### Step 2: Add the costmap layer to your Nav2 config
 
-- `/object_world_positions` (`geometry_msgs/PoseArray`): Active obstacle positions in the map frame
-- `/vlm/result` (`std_msgs/String`): VLM classification result for captured obstacle events
-- `/llm_decay/result` (`std_msgs/String`): LLM-based TTL update result
-- `/cmd_vel` (`geometry_msgs/Twist`): Optional velocity command output used during controlled measurement steps
-
-### Important Subscribed Topics
-
-- `/scan` (`sensor_msgs/LaserScan`): LiDAR scan
-- `/map` (`nav_msgs/OccupancyGrid`): Occupancy grid map
-- `/plan` (`nav_msgs/Path`): Current global plan
-- `/amcl_pose` (`geometry_msgs/PoseWithCovarianceStamped`): Robot pose estimate
-- `/camera/image_raw` (`sensor_msgs/Image`): RGB camera stream for VLM evidence capture
-- `/camera/depth/image_raw` (`sensor_msgs/Image`): Optional depth stream
-- `/odom` (`nav_msgs/Odometry`): Odometry used for speed estimation
-- `/navigate_to_pose/_action/status`: Nav2 goal status
-- `/navigate_through_poses/_action/status`: Nav2 multi-goal status
-
-## Package 2: my_costmap_layers
-
-### Overview
-
-`my_costmap_layers` provides a custom Nav2 costmap plugin that receives obstacle positions from `policy_bridge` and applies residual obstacle costs to the global costmap.
-
-### Features
-
-- Implements the `nav2_costmap_2d::Layer` interface
-- Subscribes to `/object_world_positions`
-- Converts detected object poses into costmap updates
-- Applies disc-shaped lethal obstacle costs around active obstacle positions
-- Clears stale object marks when the active obstacle set changes
-- Compatible with pluginlib and standard Nav2 costmap configuration
-
-### Main Layer
-
-- **ObjectAvoidanceLayer**: Applies temporary residual costs around detected obstacle positions.
-
-### Example Nav2 Configuration
-
-Add the custom layer to the `global_costmap` plugin list in your Nav2 parameter file:
+Add `object_avoidance_layer` to your existing Nav2 parameter file:
 
 ```yaml
 global_costmap:
@@ -91,30 +58,66 @@ global_costmap:
         plugin: "my_costmap_layers::ObjectAvoidanceLayer"
         enabled: true
         object_positions_topic: "/object_world_positions"
-        avoidance_radius: 1.0
+        avoidance_radius: 1.0      # Adjust to your robot footprint (meters)
         hold_after_clear_s: 0.1
         decay_ttl_s: 0.2
 ```
 
-## VLM and LLM Modules
+### Step 3: Configure corridor geometry for your map
 
-### `vlm_gemini_v1.py`
+`policy_bridge` uses corridor coordinates to compute the depth-ratio TTL correction. Set these to match your map in your launch file or parameter file:
 
-This script classifies captured obstacle-event images into a predefined set of semantic category tags. It uses the current TTL table to restrict allowed tags and returns structured JSON output including tag, confidence, and natural-language evidence.
+```yaml
+policy_bridge:
+  ros__parameters:
+    # Corridor extent along the x-axis (map frame)
+    corridor_start_x: 0.0        # x coordinate of corridor entrance
+    corridor_end_x: 32.0         # x coordinate of corridor exit
 
-### `llm_decay_gemini_v3.py`
+    # y-center of each corridor lane (one value per corridor)
+    corridor_y_centers: [0.0, -4.76, -13.49, -18.17]
 
-This script updates compound tag-wise TTL values after each mission. It uses mission summaries, the current TTL table, and retrieval-augmented past cases to generate structured TTL update proposals with confidence scores and natural-language rationale.
+    # Half-width of each corridor lane (meters)
+    corridor_y_half_width: 2.5
 
-### API Key Configuration
+    # Margin at corridor entrance/exit to exclude edge regions
+    corridor_x_margin: 1.0
+```
 
-The Gemini API key can be provided through an environment variable:
+> If your environment does not have clearly defined corridor directions (e.g., open areas or intersections), the depth-ratio correction is skipped automatically and the base TTL is applied directly.
+
+### Step 4: Set the detour detection threshold
+
+Adjust these values to match your map resolution and corridor geometry:
+
+```yaml
+policy_bridge:
+  ros__parameters:
+    detour_ratio_threshold: 1.15        # Trigger when path increases by 15%
+    detour_min_previous_length_m: 0.50  # Ignore very short reference paths
+    detour_hold_s: 8.0                  # Duration to hold a registered detour event (seconds)
+    detour_cooldown_s: 2.0              # Minimum interval between consecutive events (seconds)
+```
+
+### Step 5: Set your API key and enable VLM/LLM
 
 ```bash
 export GEMINI_API_KEY="<your_api_key>"
 ```
 
-Alternatively, store the key in one of the following local files:
+Enable VLM and LLM in your parameter file:
+
+```yaml
+policy_bridge:
+  ros__parameters:
+    vlm_enable: true
+    vlm_script: "~/STeP_Cost/vlm_gemini_v1.py"
+    llm_decay_enable: true
+    llm_decay_script: "~/STeP_Cost/llm_decay_gemini_v3.py"
+    llm_decay_rag_enable: true
+```
+
+Alternatively, store the key in a local file (checked in order):
 
 ```
 ~/.config/policy_bridge/gemini_api_key.txt
@@ -123,11 +126,136 @@ Alternatively, store the key in one of the following local files:
 ~/STeP_Cost/.secrets/gemini_api_key.txt
 ```
 
-Do not commit API keys or `.secrets/` directories to the repository.
+> Do not commit API keys or `.secrets/` directories to the repository.
 
-## 🧪 Experiment Suite
+### Step 6: Run policy_bridge alongside your Nav2 stack
 
-The `experiment_suite` directory contains scripts for repeated learning and evaluation runs.
+```bash
+source ~/STeP_Cost/install/setup.bash
+ros2 run policy_bridge policy_bridge
+```
+
+Monitor outputs:
+
+```bash
+ros2 topic echo /object_world_positions
+ros2 topic echo /vlm/result
+ros2 topic echo /llm_decay/result
+```
+
+---
+
+## Package 1: policy_bridge
+
+### Features
+
+- Detour-gated event detection based on global path length changes
+- RGB image capture for VLM-based semantic category classification
+- LiDAR-based speed estimation and category-conditioned GMM motion class inference
+- Compound tag construction (`category:motion`) per detour event
+- Mission summary logging for post-mission TTL adaptation
+- LLM-based TTL update proposal generation with confidence-based acceptance policy
+- Automatic global costmap clearing when residual costs expire
+
+### Published Topics
+
+| Topic | Type | Description |
+|---|---|---|
+| `/object_world_positions` | `geometry_msgs/PoseArray` | Active obstacle positions in the map frame |
+| `/vlm/result` | `std_msgs/String` | VLM classification result |
+| `/llm_decay/result` | `std_msgs/String` | LLM-based TTL update result |
+
+### Subscribed Topics
+
+| Topic | Type | Description |
+|---|---|---|
+| `/scan` | `sensor_msgs/LaserScan` | LiDAR scan |
+| `/map` | `nav_msgs/OccupancyGrid` | Occupancy grid map |
+| `/plan` | `nav_msgs/Path` | Current global plan |
+| `/amcl_pose` | `geometry_msgs/PoseWithCovarianceStamped` | Robot pose estimate |
+| `/camera/image_raw` | `sensor_msgs/Image` | RGB camera stream for VLM evidence capture |
+| `/camera/depth/image_raw` | `sensor_msgs/Image` | Optional depth stream |
+| `/odom` | `nav_msgs/Odometry` | Odometry for speed estimation |
+| `/navigate_to_pose/_action/status` | — | Nav2 goal status |
+| `/navigate_through_poses/_action/status` | — | Nav2 multi-goal status |
+
+### Full Parameter Reference
+
+| Parameter | Default | Description |
+|---|---|---|
+| `detour_ratio_threshold` | `1.15` | Path length increase ratio to trigger a detour event |
+| `detour_min_previous_length_m` | `0.50` | Minimum reference path length to activate the detour gate |
+| `detour_hold_s` | `8.0` | Duration to hold a registered detour event (seconds) |
+| `detour_cooldown_s` | `2.0` | Minimum interval between consecutive detour events (seconds) |
+| `corridor_start_x` | `0.0` | Corridor entrance x coordinate (map frame) |
+| `corridor_end_x` | `32.0` | Corridor exit x coordinate (map frame) |
+| `corridor_y_centers` | `[0.0, ...]` | Y centers of corridor lanes (map frame) |
+| `corridor_y_half_width` | `2.5` | Half-width of each corridor lane (meters) |
+| `corridor_x_margin` | `1.0` | Margin at corridor entrance/exit (meters) |
+| `default_cost_ttl_s` | `6.0` | Fallback TTL before a compound tag is confirmed |
+| `max_range_m` | `6.0` | Maximum LiDAR range for obstacle detection |
+| `min_range_m` | `0.10` | Minimum LiDAR range for obstacle detection |
+| `cluster_dist_thresh` | `0.20` | Distance threshold for LiDAR point clustering |
+| `cluster_min_points` | `5` | Minimum points to form a valid cluster |
+| `vlm_enable` | `false` | Enable VLM-based semantic classification |
+| `vlm_script` | `~/STeP_Cost/vlm_gemini_v1.py` | Path to the VLM script |
+| `vlm_model` | `gemini-2.5-flash` | Gemini model for VLM |
+| `vlm_timeout_sec` | `180.0` | VLM call timeout (seconds) |
+| `speed_classifier_enable` | `true` | Enable GMM-based motion class estimation |
+| `gmm_min_samples` | `10` | Minimum samples before GMM classification is active |
+| `llm_decay_enable` | `false` | Enable LLM-based post-mission TTL updates |
+| `llm_decay_script` | `~/STeP_Cost/llm_decay_gemini_v3.py` | Path to the LLM script |
+| `llm_decay_model` | `gemini-2.5-flash` | Gemini model for LLM |
+| `llm_decay_rag_enable` | `false` | Enable retrieval-augmented memory for LLM |
+| `llm_decay_confidence_threshold` | `0.8` | Confidence threshold for auto-acceptance |
+| `llm_decay_approval_mode` | `auto` | Approval mode: `auto`, `human`, or `human_all` |
+| `llm_decay_retrieval_max_repeat1_cases` | `30` | Maximum retrieved past cases per tag |
+| `enable_global_clear_on_expire` | `true` | Clear global costmap when TTL expires |
+
+---
+
+## Package 2: my_costmap_layers
+
+### Features
+
+- Implements the `nav2_costmap_2d::Layer` interface
+- Applies disc-shaped lethal obstacle costs around active obstacle positions
+- Clears stale obstacle marks when the active obstacle set changes
+- Compatible with pluginlib and standard Nav2 costmap configuration
+
+### Main Layer
+
+- **`ObjectAvoidanceLayer`**: Applies temporary residual costs around detected obstacle positions.
+
+---
+
+## 📁 Runtime Files
+
+By default, runtime logs and learned data are stored under `~/.ros/`:
+
+| File | Description |
+|---|---|
+| `~/.ros/decay_table.json` | Compound tag-wise TTL table |
+| `~/.ros/mission_summary.json` | Per-mission detour event log |
+| `~/.ros/llm_decay_rag_archive.json` | RAG-based past proposal archive |
+| `~/.ros/gmm_samples.json` | Speed-classifier samples |
+| `~/.ros/detour_events/` | Captured obstacle-event images |
+
+These files are runtime artifacts and should not be committed to the repository.
+
+---
+
+## 🧪 Experiment Suite (Paper Reproduction Only)
+
+> The experiment suite is provided for reproducibility of the paper results. It is designed for the specific TurtleBot3/Gazebo warehouse environment described in the paper and is **not required** for plugin use.
+>
+> The experiment scripts assume the repository is cloned to `~/STeP_Cost`.
+
+### Requirements
+
+- TurtleBot3 (waffle model) with ROS 2 Humble
+- Gazebo Classic with the warehouse map used in the paper
+- Full build: `colcon build` (includes TurtleBot3 packages)
 
 ### Learning Experiments
 
@@ -140,8 +268,8 @@ Optional arguments:
 
 ```bash
 --seed 42
---obstacle-type person
---speed-class slow
+--obstacle-type person   # person | forklift | cart
+--speed-class slow       # slow | fast
 ```
 
 ### Evaluation Experiments
@@ -155,106 +283,39 @@ Optional arguments:
 
 ```bash
 --methods <method_name>
+--scenarios <scenario_name>
 --freeze-learning
 --repeats 30
 --seed 42
 ```
 
-## 🔧 Build Instructions
+### Adapting the Experiment Scripts to Another Environment
 
-### 1. Prepare a ROS 2 workspace
+If you want to run the experiment scripts in a different environment, change the following values in the config files:
 
-```bash
-cd ~/STeP_Cost
+**In `learning_experiment_config.yaml`:**
+- `scenarios.*.start` / `scenarios.*.goal`: Robot start and goal poses in map frame
+- `scenarios.*.expected_shortest_path_m`: Obstacle-free path length (measure in advance from a clean run)
+- `scenarios.*.obstacle.standby` / `enter` / `exit` / `exit2`: Obstacle waypoints in Gazebo world frame
+- `frames.map_to_world.dx` / `dy`: Transform offset from map frame to Gazebo world frame
+
+**In `evaluation_config.yaml`:**
+- `scenarios.*.poses`: Waypoint sequence for the evaluation route in map frame
+- `scenarios.*.corridors`: Per-corridor obstacle spawn positions and trigger waypoint indices
+- `frames.map_to_world.dx` / `dy`: Transform offset from map frame to Gazebo world frame
+
+---
+
+## 📂 Folder Structure
+
 ```
-
-If this repository is placed inside another ROS 2 workspace, make sure the project-specific packages are under the workspace `src/` directory.
-
-### 2. Install ROS dependencies
-
-```bash
-rosdep update
-rosdep install --from-paths src --ignore-src -r -y
-```
-
-### 3. Install Python dependencies
-
-```bash
-pip install google-genai pydantic numpy opencv-python pillow scikit-learn
-```
-
-Depending on your environment, additional packages such as `cv_bridge`, `tf_transformations`, and Nav2-related ROS packages may need to be installed through `apt`.
-
-### 4. Build the project packages
-
-```bash
-colcon build --packages-select policy_bridge my_costmap_layers
-source install/setup.bash
-```
-
-To build all included ROS 2 packages:
-
-```bash
-colcon build
-source install/setup.bash
-```
-
-## ▶️ Run Instructions
-
-### 1. Launch the simulation and Nav2 stack
-
-Launch your TurtleBot3/Gazebo environment and Nav2 stack using the included or standard TurtleBot3 launch files.
-
-Example:
-
-```bash
-export TURTLEBOT3_MODEL=waffle
-ros2 launch turtlebot3_gazebo turtlebot3_factory.launch.py
-```
-
-In another terminal:
-
-```bash
-source ~/STeP_Cost/install/setup.bash
-ros2 launch turtlebot3_navigation2 navigation2.launch.py use_sim_time:=True
-```
-
-### 2. Run the adaptive cost publisher
-
-```bash
-source ~/STeP_Cost/install/setup.bash
-ros2 run policy_bridge policy_bridge
-```
-
-### 3. Monitor outputs
-
-```bash
-ros2 topic echo /object_world_positions
-ros2 topic echo /vlm/result
-ros2 topic echo /llm_decay/result
-```
-
-## Important Runtime Files
-
-By default, runtime logs and learned data are stored under `~/.ros/`:
-
-- `~/.ros/decay_table.json`: Compound tag-wise TTL table
-- `~/.ros/mission_summary.json`: Per-mission detour event log
-- `~/.ros/llm_decay_rag_archive.json`: RAG-based past proposal archive
-- `~/.ros/gmm_samples.json`: Speed-classifier samples
-- `~/.ros/detour_events/`: Captured obstacle-event images
-
-These files are runtime artifacts and should normally not be committed.
-
-## Folder Structure
-
-```text
 STeP_Cost/
 ├── README.md
-├── vlm_gemini_v1.py
-├── llm_decay_gemini_v3.py
-├── obstacle_speed_classifier.py
-├── experiment_suite/
+├── vlm_gemini_v1.py              # VLM script          [plugin]
+├── llm_decay_gemini_v3.py        # LLM script          [plugin]
+├── obstacle_speed_classifier.py  # GMM classifier      [plugin]
+│
+├── experiment_suite/             # Paper reproduction only
 │   ├── learning/
 │   │   ├── learning_experiment_config.yaml
 │   │   ├── learning_experiment_runner.py
@@ -264,14 +325,18 @@ STeP_Cost/
 │   │   ├── evaluation_runner.py
 │   │   └── evaluation_obstacle_controller.py
 │   ├── models/
+│   │   ├── DeliveryRobotWithConveyor/
+│   │   └── cart_model_2/
 │   ├── exp_person.sdf
 │   ├── exp_mecanum.sdf
 │   └── exp_cart.sdf
-└── src/
+│
+└── src/                          # ROS 2 packages      [plugin]
     ├── policy_bridge/
     │   ├── policy_bridge/
     │   │   ├── __init__.py
     │   │   └── policybridge.py
+    │   ├── resource/
     │   ├── setup.py
     │   ├── setup.cfg
     │   └── package.xml
@@ -280,76 +345,64 @@ STeP_Cost/
         │   └── ObjectAvoidanceLayer.cpp
         ├── include/
         │   └── my_costmap_layers/
+        │       └── ObjectAvoidanceLayer.hpp
         ├── plugins/
         │   └── costmap_plugins.xml
         ├── CMakeLists.txt
         └── package.xml
 ```
 
+---
+
 ## 🔗 Dependencies
 
 ### System
-
-- Ubuntu 22.04
-- ROS 2 Humble
-- Navigation2
-- TurtleBot3 packages
-- Gazebo
-- `colcon`
-- `rosdep`
+- Ubuntu 22.04, ROS 2 Humble, Navigation2, Gazebo (Classic), `colcon`, `rosdep`
 
 ### ROS Packages
-
-- `rclpy`
-- `rclcpp`
-- `nav2_costmap_2d`
-- `nav2_util`
-- `nav2_msgs`
-- `geometry_msgs`
-- `sensor_msgs`
-- `nav_msgs`
-- `std_msgs`
-- `tf2_ros`
-- `tf2_geometry_msgs`
-- `pluginlib`
+- `rclpy`, `rclcpp`
+- `nav2_costmap_2d`, `nav2_util`, `nav2_msgs`, `nav2_simple_commander`
+- `geometry_msgs`, `sensor_msgs`, `nav_msgs`, `std_msgs`
+- `tf2_ros`, `tf2_geometry_msgs`, `pluginlib`
 
 ### Python Packages
+- `google-genai`, `pydantic`, `numpy`, `opencv-python`, `pillow`, `scikit-learn`
 
-- `google-genai`
-- `pydantic`
-- `numpy`
-- `opencv-python`
-- `pillow`
-- `scikit-learn`
+---
 
 ## 🔧 Troubleshooting
 
 ### The custom costmap layer does not appear
-
-- Confirm that `my_costmap_layers` was built successfully.
-- Check that `source install/setup.bash` was run in the current terminal.
-- Verify that `object_avoidance_layer` is included in the `global_costmap` plugin list.
-- Confirm that the plugin name is exactly `my_costmap_layers::ObjectAvoidanceLayer`.
+- Confirm `my_costmap_layers` was built and `source install/setup.bash` was run.
+- Verify `object_avoidance_layer` is in the `global_costmap` plugin list.
+- Confirm the plugin name is exactly `my_costmap_layers::ObjectAvoidanceLayer`.
 
 ### No obstacle positions are published
-
-- Check that `/scan`, `/map`, `/plan`, and `/amcl_pose` are being published.
-- Verify that `policy_bridge` is running.
-- Confirm that detour-gated event detection is enabled.
+- Check that `/scan`, `/map`, `/plan`, and `/amcl_pose` are active.
+- Verify `policy_bridge` is running.
 - Use `ros2 topic echo /object_world_positions` to inspect outputs.
 
-### VLM classification does not run
+### Detour events are not triggered
+- Lower `detour_ratio_threshold` if your corridors are short.
+- Confirm corridor coordinates (`corridor_y_centers`, `corridor_start_x`, `corridor_end_x`) match your map frame.
+- Verify `detour_min_previous_length_m` is not larger than your actual path lengths.
 
-- Check that `vlm_enable` is set to `true`.
-- Confirm that `/camera/image_raw` is available.
-- Verify that `GEMINI_API_KEY` or a local API key file is configured.
-- Inspect logs under `~/.ros/detour_events/`.
+### VLM classification does not run
+- Check `vlm_enable: true` and confirm `/camera/image_raw` is published.
+- Verify `GEMINI_API_KEY` is set and `vlm_script` path is correct.
+- Inspect captured images under `~/.ros/detour_events/`.
 
 ### LLM TTL updates do not run
+- Check `llm_decay_enable: true`.
+- Verify `~/.ros/mission_summary.json` is being generated after each trial.
+- Confirm the Gemini API key is available.
 
-- Check that `llm_decay_enable` is set to `true`.
-- Verify that mission summary files are being generated under `~/.ros/`.
-- Confirm that the Gemini API key is available.
+### GMM motion class is not estimated
+- Check `speed_classifier_enable: true`.
+- Verify `gmm_min_samples` samples have been collected — classification is inactive until the minimum is reached.
+- Inspect `~/.ros/gmm_samples.json` to confirm samples are accumulating.
+
+---
 
 ## 📄 License
 
