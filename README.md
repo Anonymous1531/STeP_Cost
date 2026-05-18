@@ -6,26 +6,17 @@ STeP-Cost is a ROS 2 Humble and Navigation2-based framework for adaptive costmap
 
 The framework identifies detour-inducing obstacle situations during navigation, classifies obstacle semantics with a Vision-Language Model (VLM), and updates compound tag-wise Time-to-Live (TTL) values through an LLM-based post-mission policy update module. The resulting obstacle positions and adaptive residual costs are applied to the Nav2 global costmap through a custom costmap layer.
 
-**STeP-Cost is designed as a plug-in addition to an existing Nav2 stack.** It does not replace the planner or controller — it only extends the global costmap with a learned cost persistence policy. You can integrate `policy_bridge` and `my_costmap_layers` into your own ROS 2 navigation environment without using the experiment scripts.
-
-This repository contains two parts:
-
-- **Plugin** (`src/`, `vlm_gemini_v1.py`, `llm_decay_gemini_v3.py`, `obstacle_speed_classifier.py`): The core STeP-Cost components. Use these to integrate STeP-Cost into your own environment.
-- **Experiment Suite** (`experiment_suite/`): Scripts used to reproduce the paper experiments in a specific TurtleBot3/Gazebo warehouse environment. These are environment-specific and are not required for plugin use.
+**STeP-Cost is designed as a plug-in addition to an existing Nav2 stack.** It does not replace the planner or controller — it only extends the global costmap with a learned cost persistence policy. You can integrate `policy_bridge` and `my_costmap_layers` into your own ROS 2 navigation environment.
 
 ---
 
 ## 📦 Components
 
-### Core Plugin
 - **`policy_bridge`**: Runtime ROS 2 node for detour-gated event detection, VLM-based semantic category estimation, GMM-based motion class estimation, mission summary logging, and LLM-based post-mission TTL policy updates.
 - **`my_costmap_layers`**: Nav2 costmap plugin that applies adaptive residual obstacle costs to the global costmap.
 - **`vlm_gemini_v1.py`**: Standalone VLM script for visual obstacle category classification.
 - **`llm_decay_gemini_v3.py`**: Standalone LLM script for mission-level compound tag-wise TTL policy updates.
 - **`obstacle_speed_classifier.py`**: GMM-based speed classifier for category-conditioned motion class estimation.
-
-### Experiment Suite (Paper Reproduction Only)
-- **`experiment_suite/`**: Learning and evaluation scripts for the specific TurtleBot3/Gazebo warehouse environment used in the paper. Requires the paper's simulation environment and is not intended for direct reuse in other environments.
 
 ---
 
@@ -245,93 +236,15 @@ These files are runtime artifacts and should not be committed to the repository.
 
 ---
 
-## 🧪 Experiment Suite (Paper Reproduction Only)
-
-> The experiment suite is provided for reproducibility of the paper results. It is designed for the specific TurtleBot3/Gazebo warehouse environment described in the paper and is **not required** for plugin use.
->
-> The experiment scripts assume the repository is cloned to `~/STeP_Cost`.
-
-### Requirements
-
-- TurtleBot3 (waffle model) with ROS 2 Humble
-- Gazebo Classic with the warehouse map used in the paper
-- Full build: `colcon build` (includes TurtleBot3 packages)
-
-### Learning Experiments
-
-```bash
-python3 experiment_suite/learning/learning_experiment_runner.py \
-  --config experiment_suite/learning/learning_experiment_config.yaml
-```
-
-Optional arguments:
-
-```bash
---seed 42
---obstacle-type person   # person | forklift | cart
---speed-class slow       # slow | fast
-```
-
-### Evaluation Experiments
-
-```bash
-python3 experiment_suite/evaluation/evaluation_runner.py \
-  --config experiment_suite/evaluation/evaluation_config.yaml
-```
-
-Optional arguments:
-
-```bash
---methods <method_name>
---scenarios <scenario_name>
---freeze-learning
---repeats 30
---seed 42
-```
-
-### Adapting the Experiment Scripts to Another Environment
-
-If you want to run the experiment scripts in a different environment, change the following values in the config files:
-
-**In `learning_experiment_config.yaml`:**
-- `scenarios.*.start` / `scenarios.*.goal`: Robot start and goal poses in map frame
-- `scenarios.*.expected_shortest_path_m`: Obstacle-free path length (measure in advance from a clean run)
-- `scenarios.*.obstacle.standby` / `enter` / `exit` / `exit2`: Obstacle waypoints in Gazebo world frame
-- `frames.map_to_world.dx` / `dy`: Transform offset from map frame to Gazebo world frame
-
-**In `evaluation_config.yaml`:**
-- `scenarios.*.poses`: Waypoint sequence for the evaluation route in map frame
-- `scenarios.*.corridors`: Per-corridor obstacle spawn positions and trigger waypoint indices
-- `frames.map_to_world.dx` / `dy`: Transform offset from map frame to Gazebo world frame
-
----
-
 ## 📂 Folder Structure
 
 ```
 STeP_Cost/
 ├── README.md
-├── vlm_gemini_v1.py              # VLM script          [plugin]
-├── llm_decay_gemini_v3.py        # LLM script          [plugin]
-├── obstacle_speed_classifier.py  # GMM classifier      [plugin]
-│
-├── experiment_suite/             # Paper reproduction only
-│   ├── learning/
-│   │   ├── learning_experiment_config.yaml
-│   │   ├── learning_experiment_runner.py
-│   │   └── learning_obstacle_controller.py
-│   ├── evaluation/
-│   │   ├── evaluation_config.yaml
-│   │   ├── evaluation_runner.py
-│   │   └── evaluation_obstacle_controller.py
-│   ├── models/
-│   │   ├── DeliveryRobotWithConveyor/
-│   │   └── cart_model_2/
-│   ├── exp_person.sdf
-│   ├── exp_mecanum.sdf
-│   └── exp_cart.sdf
-│
-└── src/                          # ROS 2 packages      [plugin]
+├── vlm_gemini_v1.py              # VLM script
+├── llm_decay_gemini_v3.py        # LLM script
+├── obstacle_speed_classifier.py  # GMM classifier
+└── src/
     ├── policy_bridge/
     │   ├── policy_bridge/
     │   │   ├── __init__.py
