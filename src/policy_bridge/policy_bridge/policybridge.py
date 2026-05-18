@@ -34,6 +34,9 @@ from action_msgs.msg import GoalStatusArray, GoalStatus
 import tf2_ros
 import tf_transformations
 
+import pathlib
+_HERE = pathlib.Path(__file__).parent.parent.parent.parent
+
 try:
     from cv_bridge import CvBridge
     import cv2
@@ -356,7 +359,7 @@ class UnexpectedObstacleDetector(Node):
 
         self.declare_parameter("vlm_enable", False)
         self.declare_parameter("vlm_python", "python3")
-        self.declare_parameter("vlm_script", os.path.expanduser("~/STeP_Cost/vlm_gemini_v1.py"))
+        self.declare_parameter("vlm_script", str(_HERE / "vlm_gemini_v1.py"))
         self.declare_parameter("vlm_model", "gemini-2.5-flash")
         self.declare_parameter(
             "vlm_prompt",
@@ -395,7 +398,7 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("calibration_mode", False)  
         self.declare_parameter("gmm_freeze", False) 
         self.declare_parameter("llm_decay_python", "python3")
-        self.declare_parameter("llm_decay_script", os.path.expanduser("~/STeP_Cost/llm_decay_gemini_v3.py"))
+        self.declare_parameter("llm_decay_script", str(_HERE / "llm_decay_gemini_v3.py"))        
         self.declare_parameter("llm_decay_model", "gemini-2.5-flash")
         self.declare_parameter("llm_decay_result_topic", "/llm_decay/result")
         self.declare_parameter("goal_status_topic", "/navigate_to_pose/_action/status")
