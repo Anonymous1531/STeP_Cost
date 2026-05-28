@@ -1,5 +1,9 @@
 # STeP-Cost
 
+## Demo Video
+
+https://github.com/user-attachments/assets/9ee2eb44-a3ec-4fe0-adb4-c382b03101d2
+
 ## Overview
 
 STeP-Cost is a ROS 2 Humble and Navigation2-based framework for adaptive costmap TTL policy learning in mobile robot navigation.
