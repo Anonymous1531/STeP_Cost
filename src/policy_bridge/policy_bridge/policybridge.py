@@ -325,9 +325,9 @@ class UnexpectedObstacleDetector(Node):
 
         self.declare_parameter("gate_on_detour_only", True)
         self.declare_parameter("detour_ratio_threshold", 1.15)
-        self.declare_parameter("detour_min_previous_length_m", 0.50)
+        self.declare_parameter("detour_min_previous_length_m", 1.0)
         self.declare_parameter("detour_hold_s", 8.0)
-        self.declare_parameter("detour_cooldown_s", 2.0)
+        self.declare_parameter("detour_cooldown_s", 1.0)
 
         self.declare_parameter("min_range_m", 0.10)
         self.declare_parameter("max_range_m", 6.0)
@@ -342,10 +342,10 @@ class UnexpectedObstacleDetector(Node):
 
         self.declare_parameter("default_cost_ttl_s", 6.0)
         self.declare_parameter("track_merge_dist_m", 0.60)
-        self.declare_parameter("maintain_rate_hz", 5.0)
+        self.declare_parameter("maintain_rate_hz", 8.0)
         self.declare_parameter("publish_empty_when_no_active", True)
 
-        self.declare_parameter("enable_global_clear_on_expire", True)
+        self.declare_parameter("enable_global_clear_on_expire", False)
         self.declare_parameter("clear_service", "/global_costmap/clear_entirely_global_costmap")
         self.declare_parameter("clear_service_wait_s", 0.2)
 
@@ -387,7 +387,7 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("speed_max_range_m", 6.0)
         self.declare_parameter("speed_query_window_before_s", 5.0)
         self.declare_parameter("speed_query_window_after_s", 1.0)
-        self.declare_parameter("speed_measure_stop_s", 5.0)  
+        self.declare_parameter("speed_measure_stop_s", 0.0)  
         self.declare_parameter("odom_topic", "/odom")
         self.declare_parameter("llm_stdout_log_chars", 2000)
         self.declare_parameter("llm_stderr_log_chars", 2000)  
@@ -412,14 +412,15 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("llm_decay_archive_max_cases", 2000)
         self.declare_parameter("llm_decay_approval_mode", "auto")
         self.declare_parameter("llm_decay_human_approval_threshold_pct", 5.0)
-        self.declare_parameter("llm_decay_confidence_threshold", 0.8)  
+        self.declare_parameter("llm_decay_confidence_threshold", 0.9)  
         self.declare_parameter("llm_decay_auto_approve", True)
         self.declare_parameter("llm_decay_human_approval", False)
         self.declare_parameter("default_decay_tag", "nav_anomaly")
         self.declare_parameter("apply_vlm_decay_online", True)
         self.declare_parameter("start_new_mission_after_llm", True)
-        self.declare_parameter("min_online_tag_ttl_s", 5.0)
-
+        self.declare_parameter("base_ttl_min_s", 0.1)
+        self.declare_parameter("applied_ttl_min_s", 0.5)
+        
         self._enabled = bool(self.get_parameter("enabled").value)
         self._scan_topic = str(self.get_parameter("scan_topic").value)
         self._map_topic = str(self.get_parameter("map_topic").value)
@@ -510,7 +511,8 @@ class UnexpectedObstacleDetector(Node):
         self._default_decay_tag = normalize_tag_key(self.get_parameter("default_decay_tag").value)
         self._apply_vlm_decay_online = bool(self.get_parameter("apply_vlm_decay_online").value)
         self._start_new_mission_after_llm = bool(self.get_parameter("start_new_mission_after_llm").value)
-        self._min_online_tag_ttl_s = float(self.get_parameter("min_online_tag_ttl_s").value)
+        self._base_ttl_min_s = float(self.get_parameter("base_ttl_min_s").value)
+        self._applied_ttl_min_s = float(self.get_parameter("applied_ttl_min_s").value)
 
         self._map_msg: Optional[OccupancyGrid] = None
         self._prev_centroids: List[Tuple[float, float]] = []
