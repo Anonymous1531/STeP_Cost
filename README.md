@@ -34,7 +34,7 @@ This section describes how to integrate STeP-Cost into your own ROS 2 navigation
 git clone https://github.com/Anonymous1531/STeP_Cost.git ~/STeP_Cost
 cd ~/STeP_Cost
 rosdep install --from-paths src --ignore-src -r -y
-pip install google-genai pydantic numpy opencv-python pillow scikit-learn
+pip install google-genai pydantic numpy opencv-python pillow
 colcon build --packages-select policy_bridge my_costmap_layers
 source install/setup.bash
 ```
@@ -53,9 +53,8 @@ global_costmap:
         plugin: "my_costmap_layers::ObjectAvoidanceLayer"
         enabled: true
         object_positions_topic: "/object_world_positions"
-        avoidance_radius: 1.0      # Adjust to your robot footprint (meters)
-        hold_after_clear_s: 0.1
-        decay_ttl_s: 0.2
+        avoidance_radius: 2.0
+        bounds_padding_cells: 10.0
 ```
 
 ### Step 3: Configure corridor geometry for your map
@@ -79,7 +78,11 @@ policy_bridge:
     corridor_x_margin: 1.0
 ```
 
-> If your environment does not have clearly defined corridor directions (e.g., open areas or intersections), the depth-ratio correction is skipped automatically and the base TTL is applied directly.
+> Custom residual-cost insertion is restricted to configured corridor regions.
+> Outside these regions, diagnostic obstacle detection may still occur, but
+> residual-cost insertion and tag-wise TTL application are skipped.
+> The coordinates above are example/default values for integration.
+> Map-specific corridor geometry should be configured for the deployment environment.
 
 ### Step 4: Set the detour detection threshold
 
@@ -89,9 +92,9 @@ Adjust these values to match your map resolution and corridor geometry:
 policy_bridge:
   ros__parameters:
     detour_ratio_threshold: 1.15        # Trigger when path increases by 15%
-    detour_min_previous_length_m: 0.50  # Ignore very short reference paths
+    detour_min_previous_length_m: 1.0  # Ignore very short reference paths
     detour_hold_s: 8.0                  # Duration to hold a registered detour event (seconds)
-    detour_cooldown_s: 2.0              # Minimum interval between consecutive events (seconds)
+    detour_cooldown_s: 1.0              # Minimum interval between consecutive events (seconds)
 ```
 
 ### Step 5: Set your API key and enable VLM/LLM
@@ -110,6 +113,8 @@ policy_bridge:
     llm_decay_enable: true
     llm_decay_script: "~/STeP_Cost/llm_decay_gemini_v3.py"
     llm_decay_rag_enable: true
+    llm_decay_approval_mode: "ours"
+    llm_decay_confidence_threshold: 0.9
 ```
 
 Alternatively, store the key in a local file (checked in order):
@@ -150,7 +155,7 @@ ros2 topic echo /llm_decay/result
 - Compound tag construction (`category:motion`) per detour event
 - Mission summary logging for post-mission TTL adaptation
 - LLM-based TTL update proposal generation with confidence-based acceptance policy
-- Automatic global costmap clearing when residual costs expire
+- Wall-clock residual-cost lifetime management with survivor republishing on expiry
 
 ### Published Topics
 
@@ -169,19 +174,17 @@ ros2 topic echo /llm_decay/result
 | `/plan` | `nav_msgs/Path` | Current global plan |
 | `/amcl_pose` | `geometry_msgs/PoseWithCovarianceStamped` | Robot pose estimate |
 | `/camera/image_raw` | `sensor_msgs/Image` | RGB camera stream for VLM evidence capture |
-| `/camera/depth/image_raw` | `sensor_msgs/Image` | Optional depth stream |
-| `/odom` | `nav_msgs/Odometry` | Odometry for speed estimation |
-| `/navigate_to_pose/_action/status` | — | Nav2 goal status |
-| `/navigate_through_poses/_action/status` | — | Nav2 multi-goal status |
+| `/navigate_to_pose/_action/status` | `action_msgs/GoalStatusArray` | Optional mission-end trigger when `postrun_on_goal_success=true` |
+| `/navigate_through_poses/_action/status` | `action_msgs/GoalStatusArray` | Optional mission-end trigger when `postrun_on_goal_success=true` |
 
-### Full Parameter Reference
+### Key Parameter Reference
 
 | Parameter | Default | Description |
 |---|---|---|
 | `detour_ratio_threshold` | `1.15` | Path length increase ratio to trigger a detour event |
-| `detour_min_previous_length_m` | `0.50` | Minimum reference path length to activate the detour gate |
+| `detour_min_previous_length_m` | `1.0` | Minimum reference path length to activate the detour gate |
 | `detour_hold_s` | `8.0` | Duration to hold a registered detour event (seconds) |
-| `detour_cooldown_s` | `2.0` | Minimum interval between consecutive detour events (seconds) |
+| `detour_cooldown_s` | `1.0` | Minimum interval between consecutive detour events (seconds) |
 | `corridor_start_x` | `0.0` | Corridor entrance x coordinate (map frame) |
 | `corridor_end_x` | `32.0` | Corridor exit x coordinate (map frame) |
 | `corridor_y_centers` | `[0.0, ...]` | Y centers of corridor lanes (map frame) |
@@ -193,19 +196,19 @@ ros2 topic echo /llm_decay/result
 | `cluster_dist_thresh` | `0.20` | Distance threshold for LiDAR point clustering |
 | `cluster_min_points` | `5` | Minimum points to form a valid cluster |
 | `vlm_enable` | `false` | Enable VLM-based semantic classification |
-| `vlm_script` | `~/STeP_Cost/vlm_gemini_v1.py` | Path to the VLM script |
+| `vlm_script` | auto-resolved | Path to `vlm_gemini_v1.py` |
 | `vlm_model` | `gemini-2.5-flash` | Gemini model for VLM |
 | `vlm_timeout_sec` | `180.0` | VLM call timeout (seconds) |
 | `speed_classifier_enable` | `true` | Enable GMM-based motion class estimation |
 | `gmm_min_samples` | `10` | Minimum samples before GMM classification is active |
 | `llm_decay_enable` | `false` | Enable LLM-based post-mission TTL updates |
-| `llm_decay_script` | `~/STeP_Cost/llm_decay_gemini_v3.py` | Path to the LLM script |
+| `llm_decay_script` | auto-resolved | Path to `llm_decay_gemini_v3.py` |
 | `llm_decay_model` | `gemini-2.5-flash` | Gemini model for LLM |
 | `llm_decay_rag_enable` | `false` | Enable retrieval-augmented memory for LLM |
-| `llm_decay_confidence_threshold` | `0.8` | Confidence threshold for auto-acceptance |
-| `llm_decay_approval_mode` | `auto` | Approval mode: `auto`, `human`, or `human_all` |
+| `llm_decay_confidence_threshold` | `0.9` | Confidence threshold for auto-acceptance |
+| `llm_decay_approval_mode` | `ours` | Approval mode: `auto`, `ours`, or `human_all` |
 | `llm_decay_retrieval_max_repeat1_cases` | `30` | Maximum retrieved past cases per tag |
-| `enable_global_clear_on_expire` | `true` | Clear global costmap when TTL expires |
+| `enable_global_clear_on_expire` | `false` | Automatically trigger post-mission LLM after Nav2 goal success |
 
 ---
 
@@ -316,7 +319,8 @@ STeP_Cost/
 
 ### GMM motion class is not estimated
 - Check `speed_classifier_enable: true`.
-- Verify `gmm_min_samples` samples have been collected — classification is inactive until the minimum is reached.
+- Verify that enough category-specific samples have been collected for the GMM.
+- Before a category GMM is ready, the runtime uses the configured `speed_threshold_mps` fallback classifier.
 - Inspect `~/.ros/gmm_samples.json` to confirm samples are accumulating.
 
 ---
