@@ -33,6 +33,7 @@ _HERE = pathlib.Path(__file__).resolve().parent.parent.parent.parent
 
 
 def _default_script_path(filename: str) -> str:
+    """Resolve helper scripts both from a source checkout and a normal user clone."""
     candidates = [
         _HERE / filename,
         pathlib.Path.home() / "STeP_Cost" / filename,
@@ -52,9 +53,16 @@ except Exception:
     cv2 = None
     _CAPTURE_OK = False
 
+
+# -----------------------------------------------------------------------------
+# Utilities
+# -----------------------------------------------------------------------------
+
 TAG_KEY_TOKEN_RE = re.compile(r"\s+")
 
+
 def normalize_tag_key(key: Any) -> str:
+    """Normalize a semantic or semantic-motion tag without inventing new tags."""
     if key is None:
         return ""
 
@@ -93,6 +101,7 @@ def normalize_tag_key(key: Any) -> str:
 
 
 def extract_vlm_tag_key(vlm_field: Any) -> str:
+    """Extract the base semantic tag from a VLM JSON object/string."""
     if vlm_field is None:
         return ""
 
@@ -112,6 +121,7 @@ def extract_vlm_tag_key(vlm_field: Any) -> str:
     else:
         return ""
 
+    # VLM is responsible only for the base semantic category.
     if ":" in key:
         key = key.split(":", 1)[0]
     return key
@@ -152,7 +162,15 @@ def _read_json(path: str, default: Any) -> Any:
     except Exception:
         return default
 
+
+# -----------------------------------------------------------------------------
+# Category-conditioned 1-D two-component GMM
+# -----------------------------------------------------------------------------
+
+
 class _SingleGMM:
+    """Two-component 1-D GMM with median-split initialization."""
+
     def __init__(self, min_samples: int = 10):
         self.min_samples = int(min_samples)
         self._samples: List[float] = []
@@ -251,6 +269,7 @@ class _SingleGMM:
         self._fitted = True
 
     def predict(self, speed_mps: float) -> str:
+        # Direct calls before readiness retain the historical fast fallback.
         if not self._fitted:
             return "fast"
 
@@ -289,6 +308,8 @@ class _SingleGMM:
 
 
 class _TagGMM:
+    """One two-component GMM per base semantic category."""
+
     def __init__(self, min_samples: int, save_path: str):
         self.min_samples = int(min_samples)
         self.save_path = os.path.expanduser(save_path)
@@ -354,6 +375,11 @@ class _TagGMM:
                     )
 
 
+# -----------------------------------------------------------------------------
+# Runtime state
+# -----------------------------------------------------------------------------
+
+
 @dataclass
 class ActiveCost:
     cost_id: int
@@ -375,10 +401,36 @@ class TrackState:
     t: float
     speed_samples: List[float]
 
+
+# -----------------------------------------------------------------------------
+# Policy bridge
+# -----------------------------------------------------------------------------
+
+
 class UnexpectedObstacleDetector(Node):
+    """
+    Core STeP-Cost runtime bridge.
+
+    Responsibilities:
+      * detect relative global-plan length increases,
+      * identify path-relevant unexpected LiDAR obstacle centroids,
+      * capture the event-time RGB frame,
+      * obtain a base semantic category from the VLM,
+      * obtain a category-conditioned slow/fast label from a GMM,
+      * apply tag-wise residual-cost TTL with optional depth correction,
+      * maintain mission summaries,
+      * perform post-mission LLM proposal generation and selective review.
+
+    Nav2 remains responsible for global planning and control. This node only
+    publishes active residual obstacle positions to the custom costmap layer.
+    """
+
     def __init__(self):
         super().__init__("unexpected_obstacle_detector")
 
+        # ------------------------------------------------------------------
+        # Parameters
+        # ------------------------------------------------------------------
         self.declare_parameter("enabled", True)
         self.declare_parameter("scan_topic", "/scan")
         self.declare_parameter("map_topic", "/map")
@@ -386,13 +438,16 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("pose_topic", "/amcl_pose")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("output_topic", "/object_world_positions")
-        
+
+        # Detour gate. detour_ratio_threshold is a multiplicative factor:
+        # 1.15 <=> a relative plan-length increase of 0.15.
         self.declare_parameter("gate_on_detour_only", True)
         self.declare_parameter("detour_ratio_threshold", 1.15)
         self.declare_parameter("detour_min_previous_length_m", 1.0)
         self.declare_parameter("detour_hold_s", 8.0)
         self.declare_parameter("detour_cooldown_s", 1.0)
 
+        # Unexpected-obstacle extraction from LiDAR + static occupancy map.
         self.declare_parameter("min_range_m", 0.10)
         self.declare_parameter("max_range_m", 6.0)
         self.declare_parameter("occupied_threshold", 50)
@@ -406,6 +461,7 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("speed_sample_min_dt_s", 0.10)
         self.declare_parameter("speed_sample_window", 30)
 
+        # Residual-cost lifetime.
         self.declare_parameter("default_cost_ttl_s", 6.0)
         self.declare_parameter("base_ttl_min_s", 0.1)
         self.declare_parameter("base_ttl_max_s", 600.0)
@@ -416,6 +472,8 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("clear_service", "/global_costmap/clear_entirely_global_costmap")
         self.declare_parameter("clear_service_wait_s", 0.2)
 
+        # Corridor metadata for the x-axis Factory-style corridor depth ratio.
+        # Keep map-specific coordinates configurable; do not hard-code a paper map.
         self.declare_parameter("corridor_start_x", 0.0)
         self.declare_parameter("corridor_end_x", 32.0)
         self.declare_parameter("corridor_y_centers", [0.0, -4.76, -13.49, -18.17])
@@ -423,6 +481,7 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("corridor_x_margin", 1.0)
         self.declare_parameter("depth_correction_enable", True)
 
+        # VLM: semantic category only.
         self.declare_parameter("enable_capture", True)
         self.declare_parameter("camera_topic", "/camera/image_raw")
         self.declare_parameter("sample_hz", 6.0)
@@ -447,12 +506,14 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("debug_vlm_stdout_chars", 350)
         self.declare_parameter("debug_vlm_stderr_chars", 350)
 
+        # Category-conditioned motion classification.
         self.declare_parameter("speed_classifier_enable", True)
         self.declare_parameter("gmm_min_samples", 10)
         self.declare_parameter("gmm_samples_path", os.path.expanduser("~/.ros/gmm_samples.json"))
         self.declare_parameter("gmm_freeze", False)
         self.declare_parameter("speed_threshold_mps", 0.3)
 
+        # Mission / post-mission LLM update.
         self.declare_parameter("mission_summary_path", os.path.expanduser("~/.ros/mission_summary.json"))
         self.declare_parameter("mission_summary_out_path", os.path.expanduser("~/.ros/mission_summary_out.json"))
         self.declare_parameter("llm_decay_enable", False)
@@ -479,6 +540,9 @@ class UnexpectedObstacleDetector(Node):
         self.declare_parameter("llm_stdout_log_chars", 2000)
         self.declare_parameter("llm_stderr_log_chars", 2000)
 
+        # ------------------------------------------------------------------
+        # Read parameters
+        # ------------------------------------------------------------------
         self._enabled = bool(self.get_parameter("enabled").value)
         self._scan_topic = str(self.get_parameter("scan_topic").value)
         self._map_topic = str(self.get_parameter("map_topic").value)
@@ -601,7 +665,7 @@ class UnexpectedObstacleDetector(Node):
         )
         mode = str(self.get_parameter("llm_decay_approval_mode").value).strip().lower()
         if mode == "human":
-            mode = "ours"
+            mode = "ours"  # backward-compatible alias
         if mode not in ("auto", "ours", "human_all"):
             self.get_logger().warn(
                 f"[LLM] invalid llm_decay_approval_mode={mode!r}; fallback to 'ours'"
@@ -631,6 +695,9 @@ class UnexpectedObstacleDetector(Node):
             200, int(self.get_parameter("llm_stderr_log_chars").value)
         )
 
+        # ------------------------------------------------------------------
+        # State
+        # ------------------------------------------------------------------
         self._map_msg: Optional[OccupancyGrid] = None
         self._current_pose_xy: Tuple[float, float] = (0.0, 0.0)
         self._previous_path_length = 0.0
@@ -678,6 +745,9 @@ class UnexpectedObstacleDetector(Node):
         )
         self._gmm.load()
 
+        # ------------------------------------------------------------------
+        # ROS interfaces
+        # ------------------------------------------------------------------
         if self._enable_capture or self._vlm_enable:
             os.makedirs(self._save_root, exist_ok=True)
             if not _CAPTURE_OK:
@@ -755,6 +825,10 @@ class UnexpectedObstacleDetector(Node):
             f"review_threshold={self._llm_decay_confidence_threshold:.2f}"
         )
         self.get_logger().info(f"[GMM]\n{self._gmm.summary()}")
+
+    # ------------------------------------------------------------------
+    # Basic state and file helpers
+    # ------------------------------------------------------------------
 
     def _new_mission_template(self) -> Dict[str, Any]:
         now = time.time()
@@ -878,11 +952,16 @@ class UnexpectedObstacleDetector(Node):
             except Exception:
                 pass
 
+        # No semantic-base fallback: the policy is compound-tag indexed.
         ttl = self._clamp_base_ttl(self._default_cost_ttl_s)
         self.get_logger().warn(
             f"[DECAY] miss compound tag={key!r} -> default base ttl={ttl:.2f}s"
         )
         return ttl
+
+    # ------------------------------------------------------------------
+    # ROS callbacks: map / pose / image / scan
+    # ------------------------------------------------------------------
 
     def _map_cb(self, msg: OccupancyGrid) -> None:
         self._map_msg = msg
@@ -958,6 +1037,10 @@ class UnexpectedObstacleDetector(Node):
 
         if self._speed_classifier_enable:
             self._update_centroid_tracks(centroids, time.time())
+
+    # ------------------------------------------------------------------
+    # Unexpected-obstacle extraction and map-frame centroid tracking
+    # ------------------------------------------------------------------
 
     def _cluster_centroids(self, pts: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
         if not pts:
@@ -1116,6 +1199,10 @@ class UnexpectedObstacleDetector(Node):
             return None
         return mx, my
 
+    # ------------------------------------------------------------------
+    # Detour gate and event creation
+    # ------------------------------------------------------------------
+
     @staticmethod
     def _compute_path_length(path_msg: Path) -> float:
         poses = path_msg.poses
@@ -1187,6 +1274,8 @@ class UnexpectedObstacleDetector(Node):
         self._current_event_id = event_id
         self._event_tag_map[event_id] = ""
 
+        # Freeze corridor traversal direction at event time. Do not infer it
+        # later after VLM latency from the robot's changed position.
         corridor_lo = min(self._corridor_start_x, self._corridor_end_x)
         corridor_hi = max(self._corridor_start_x, self._corridor_end_x)
         plan_dx = 0.0
@@ -1226,7 +1315,9 @@ class UnexpectedObstacleDetector(Node):
                 obstacle_speed_mps = self._tracked_speed_near(*obstacle_xy)
                 if obstacle_speed_mps >= 0.0:
                     self._event_speed_mps[event_id] = float(obstacle_speed_mps)
-                    
+
+                # Insert the temporary residual entry at the observed centroid.
+                # Do not snap it to the corridor center.
                 self._insert_temporary_cost(event_id, obstacle_xy, now)
             else:
                 self.get_logger().info(
@@ -1260,7 +1351,9 @@ class UnexpectedObstacleDetector(Node):
                 "pose_xy": {"x": float(robot_x), "y": float(robot_y)},
                 "plan_prev_len": float(old_length),
                 "plan_new_len": float(current_length),
+                # Relative increase, matching the manuscript's mission-summary field.
                 "ratio": float(detour_ratio),
+                # Diagnostic factor used by the actual trigger.
                 "path_ratio_factor": float(path_ratio_factor),
                 "vlm": None,
                 "vlm_tag_key": None,
@@ -1295,6 +1388,10 @@ class UnexpectedObstacleDetector(Node):
                 y=robot_y,
                 event_time=now,
             )
+
+    # ------------------------------------------------------------------
+    # Residual cost lifecycle
+    # ------------------------------------------------------------------
 
     def _insert_temporary_cost(
         self,
@@ -1353,6 +1450,8 @@ class UnexpectedObstacleDetector(Node):
                 self._applied_ttl_min_s,
                 depth_corrected - float(vlm_dt_s),
             )
+
+            # Reset expiry at the post-VLM update time. Latency is subtracted once.
             cost.tag_key = tag_key
             cost.tag_group_id = tag_group_id
             cost.ttl_s = float(applied_ttl)
@@ -1458,6 +1557,10 @@ class UnexpectedObstacleDetector(Node):
             self._clear_pending_republish = False
             self._call_clear_service_and_republish()
 
+    # ------------------------------------------------------------------
+    # Event-time camera capture and VLM semantic tagging
+    # ------------------------------------------------------------------
+
     def _capture_detour_event(
         self,
         event_id: str,
@@ -1522,6 +1625,7 @@ class UnexpectedObstacleDetector(Node):
     def _run_vlm_async(self, event_dir: str, frame_path: str, trigger_text: str) -> None:
         def runner() -> None:
             if self._vlm_singleflight:
+                # Serialize requests instead of dropping later events.
                 with self._vlm_guard:
                     self._run_vlm_and_save(event_dir, frame_path, trigger_text)
             else:
@@ -1622,6 +1726,7 @@ class UnexpectedObstacleDetector(Node):
                 if self._gmm.is_ready(base_tag):
                     speed_class = self._gmm.predict(base_tag, event_speed)
                 else:
+                    # Readiness is checked before predict; this is the runtime fallback.
                     speed_class = (
                         "fast" if event_speed >= self._speed_threshold_mps else "slow"
                     )
@@ -1714,6 +1819,10 @@ class UnexpectedObstacleDetector(Node):
                 {"vlm_error": str(e), "vlm_dt_sec": float(dt)},
             )
 
+    # ------------------------------------------------------------------
+    # LLM proposal parsing and local application
+    # ------------------------------------------------------------------
+
     def _parse_llm_proposal_updates(
         self, stdout: str
     ) -> List[Tuple[str, float, float]]:
@@ -1753,6 +1862,7 @@ class UnexpectedObstacleDetector(Node):
         if parsed:
             return parsed
 
+        # Backward-compatible textual fallback for the current helper script.
         pattern = re.compile(
             r"^\s*-\s+([A-Za-z0-9_\-:]+):\s+"
             r"(?:ttl_base_s|ttl_s)=([0-9]+(?:\.[0-9]+)?)",
@@ -1798,6 +1908,10 @@ class UnexpectedObstacleDetector(Node):
         except Exception:
             return ""
 
+    # ------------------------------------------------------------------
+    # Archive handling
+    # ------------------------------------------------------------------
+
     def _normalize_feedback_text(self, text: Optional[str]) -> str:
         s = (text or "").strip().lower()
         if not s:
@@ -1813,6 +1927,7 @@ class UnexpectedObstacleDetector(Node):
         approval_status: str,
         human_feedback: str = "",
     ) -> None:
+        """Append/update proposal cases using the Appendix-D-style archive list."""
         if not (self._llm_decay_rag_enable and self._llm_decay_append_to_archive):
             return
         if not proposal_updates:
@@ -1830,32 +1945,35 @@ class UnexpectedObstacleDetector(Node):
         feedback = (human_feedback or "").strip()
         feedback_norm = self._normalize_feedback_text(feedback)
 
-        archive = _read_json(self._llm_decay_retrieval_archive_path, {})
-        if not isinstance(archive, dict):
-            archive = {}
-        rows = archive.get("cases", [])
+        archive = _read_json(self._llm_decay_retrieval_archive_path, [])
+        if isinstance(archive, dict):
+            # Backward-compatible migration from older {"cases": [...]} archives.
+            rows = archive.get("cases", [])
+        else:
+            rows = archive
         if not isinstance(rows, list):
             rows = []
-        metadata = archive.get("proposal_metadata", {})
-        if not isinstance(metadata, dict):
-            metadata = {}
 
         index: Dict[Tuple[str, str, str], int] = {}
         for i, row in enumerate(rows):
-            if isinstance(row, dict):
-                index[
-                    (
-                        str(row.get("mission_id") or ""),
-                        str(row.get("event_id") or ""),
-                        normalize_tag_key(row.get("tag_key")),
-                    )
-                ] = i
+            if not isinstance(row, dict):
+                continue
+            index[(
+                str(row.get("mission_id") or ""),
+                str(row.get("event_id") or ""),
+                normalize_tag_key(row.get("tag_key")),
+            )] = i
 
         for ev in mission.get("events", []) or []:
             if not isinstance(ev, dict):
                 continue
+
             tag = normalize_tag_key(ev.get("vlm_tag_key"))
             if tag not in proposal_map:
+                continue
+
+            event_id = str(ev.get("event") or "")
+            if not event_id:
                 continue
 
             ttl, llm_conf = proposal_map[tag]
@@ -1869,11 +1987,12 @@ class UnexpectedObstacleDetector(Node):
             except Exception:
                 vlm_conf = None
 
-            event_id = str(ev.get("event") or "")
-            if not event_id:
-                continue
+            try:
+                repeat_count = int(ev.get("tag_repeat_count_in_mission") or 1)
+            except Exception:
+                repeat_count = 1
+            repeat_count = max(1, repeat_count)
 
-            repeat_count = int(ev.get("tag_repeat_count_in_mission") or 1)
             row = {
                 "mission_id": mission_id,
                 "event_id": event_id,
@@ -1881,7 +2000,7 @@ class UnexpectedObstacleDetector(Node):
                 "detour_ratio": ev.get("ratio"),
                 "old_len": ev.get("plan_prev_len"),
                 "new_len": ev.get("plan_new_len"),
-                "confidence": vlm_conf,
+                "vlm_confidence": vlm_conf,
                 "evidence": vlm.get("evidence"),
                 "applied_ttl_s": ev.get("applied_ttl_s"),
                 "timestamp": ev.get("timestamp_unix"),
@@ -1895,6 +2014,8 @@ class UnexpectedObstacleDetector(Node):
                 "approval_mode": approval_mode,
                 "approval_status": approval_status,
                 "proposed_ttl_s": float(ttl),
+                "llm_proposal_confidence": float(llm_conf),
+                "proposal_reason": self._llm_reason_map.get(tag, ""),
                 "approval_timestamp": time.time(),
                 "human_feedback": feedback,
                 "human_feedback_norm": feedback_norm,
@@ -1908,33 +2029,11 @@ class UnexpectedObstacleDetector(Node):
                 index[key] = len(rows)
                 rows.append(row)
 
-            metadata_key = "|".join(key)
-            metadata[metadata_key] = {
-                "llm_proposal_confidence": float(llm_conf),
-                "proposal_reason": self._llm_reason_map.get(tag, ""),
-            }
-
         max_cases = max(1, self._llm_decay_archive_max_cases)
         if len(rows) > max_cases:
-            keep = rows[-max_cases:]
-            keep_keys = {
-                "|".join(
-                    (
-                        str(r.get("mission_id") or ""),
-                        str(r.get("event_id") or ""),
-                        normalize_tag_key(r.get("tag_key")),
-                    )
-                )
-                for r in keep
-                if isinstance(r, dict)
-            }
-            rows = keep
-            metadata = {k: v for k, v in metadata.items() if k in keep_keys}
+            rows = rows[-max_cases:]
 
-        archive["cases"] = rows
-        archive["proposal_metadata"] = metadata
-        archive["updated_at"] = time.time()
-        _atomic_json_write(self._llm_decay_retrieval_archive_path, archive)
+        _atomic_json_write(self._llm_decay_retrieval_archive_path, rows)
 
     def _record_llm_decision(
         self,
@@ -1962,6 +2061,10 @@ class UnexpectedObstacleDetector(Node):
                 }
             )
         self._save_mission()
+
+    # ------------------------------------------------------------------
+    # Post-mission LLM update and selective review
+    # ------------------------------------------------------------------
 
     def _run_llm_preview(self) -> Tuple[subprocess.CompletedProcess, float]:
         cmd = [
@@ -2115,7 +2218,7 @@ class UnexpectedObstacleDetector(Node):
         elif mode == "human_all":
             auto_updates = []
             human_updates = proposals
-        else:
+        else:  # ours
             auto_updates = [
                 u for u in proposals if u[2] >= self._llm_decay_confidence_threshold
             ]
@@ -2167,6 +2270,7 @@ class UnexpectedObstacleDetector(Node):
                         review_status = "rejected"
                         break
             except EOFError:
+                # Manuscript behavior: pending proposal remains unapplied.
                 approved = False
                 review_status = "unapplied_eof"
                 self.get_logger().info(
@@ -2208,6 +2312,10 @@ class UnexpectedObstacleDetector(Node):
 
         if self._start_new_mission_after_llm:
             self._start_new_mission(save=True)
+
+    # ------------------------------------------------------------------
+    # Mission lifecycle services / optional goal-success trigger
+    # ------------------------------------------------------------------
 
     def _reset_mission_cb(self, request: Trigger.Request, response: Trigger.Response):
         del request
