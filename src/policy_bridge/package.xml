@@ -2,19 +2,23 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>policy_bridge</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <version>0.1.0</version>
+  <description>STeP-Cost runtime policy bridge for detour-gated semantic-motion TTL persistence.</description>
   <maintainer email="anonymous@example.com">Anonymous</maintainer>
-  <license>TODO: License declaration</license>
+  <license>Proprietary</license>
 
-  <depend>rclpy</depend>
-  <depend>std_msgs</depend>
+  <depend>action_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-  <depend>nav2_simple_commander</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>tf2_ros</depend>
 
-  <test_depend>ament_copyright</test_depend>
+  <exec_depend>cv_bridge</exec_depend>
+
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
