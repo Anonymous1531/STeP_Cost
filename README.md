@@ -65,8 +65,8 @@ global_costmap:
 policy_bridge:
   ros__parameters:
     # Corridor extent along the x-axis (map frame)
-    corridor_start_x: 0.0        # x coordinate of corridor entrance
-    corridor_end_x: 32.0         # x coordinate of corridor exit
+    corridor_start_x: 0.0        # one longitudinal corridor endpoint
+    corridor_end_x: 32.0         # the other longitudinal corridor endpoint
 
     # y-center of each corridor lane (one value per corridor)
     corridor_y_centers: [0.0, -4.76, -13.49, -18.17]
@@ -185,8 +185,8 @@ ros2 topic echo /llm_decay/result
 | `detour_min_previous_length_m` | `1.0` | Minimum reference path length to activate the detour gate |
 | `detour_hold_s` | `8.0` | Duration to hold a registered detour event (seconds) |
 | `detour_cooldown_s` | `1.0` | Minimum interval between consecutive detour events (seconds) |
-| `corridor_start_x` | `0.0` | Corridor entrance x coordinate (map frame) |
-| `corridor_end_x` | `32.0` | Corridor exit x coordinate (map frame) |
+| `corridor_start_x` | `0.0` | One longitudinal corridor endpoint (map frame) |
+| `corridor_end_x` | `32.0` | The other longitudinal corridor endpoint (map frame) |
 | `corridor_y_centers` | `[0.0, ...]` | Y centers of corridor lanes (map frame) |
 | `corridor_y_half_width` | `2.5` | Half-width of each corridor lane (meters) |
 | `corridor_x_margin` | `1.0` | Margin at corridor entrance/exit (meters) |
@@ -208,7 +208,7 @@ ros2 topic echo /llm_decay/result
 | `llm_decay_confidence_threshold` | `0.9` | Confidence threshold for auto-acceptance |
 | `llm_decay_approval_mode` | `ours` | Approval mode: `auto`, `ours`, or `human_all` |
 | `llm_decay_retrieval_max_repeat1_cases` | `30` | Maximum retrieved past cases per tag |
-| `enable_global_clear_on_expire` | `false` | Automatically trigger post-mission LLM after Nav2 goal success |
+| `enable_global_clear_on_expire` | `false` | Clear the entire global costmap when residual costs expire |
 
 ---
 
@@ -286,7 +286,7 @@ STeP_Cost/
 - `tf2_ros`, `tf2_geometry_msgs`, `pluginlib`
 
 ### Python Packages
-- `google-genai`, `pydantic`, `numpy`, `opencv-python`, `pillow`, `scikit-learn`
+- `google-genai`, `pydantic`, `numpy`, `opencv-python`, `pillow`
 
 ---
 
