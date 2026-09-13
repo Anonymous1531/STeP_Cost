@@ -1274,22 +1274,17 @@ class UnexpectedObstacleDetector(Node):
         self._current_event_id = event_id
         self._event_tag_map[event_id] = ""
 
-        # Freeze corridor traversal direction at event time. Do not infer it
-        # later after VLM latency from the robot's changed position.
-        corridor_lo = min(self._corridor_start_x, self._corridor_end_x)
-        corridor_hi = max(self._corridor_start_x, self._corridor_end_x)
-        plan_dx = 0.0
-        if len(msg.poses) >= 2:
-            plan_dx = (
-                float(msg.poses[-1].pose.position.x)
-                - float(msg.poses[0].pose.position.x)
-            )
-
-        if plan_dx >= 0.0:
-            entry_x, exit_x = corridor_lo, corridor_hi
-        else:
-            entry_x, exit_x = corridor_hi, corridor_lo
-        self._event_depth_bounds[event_id] = (entry_x, exit_x)
+        corridor_lo = min(
+            self._corridor_start_x,
+            self._corridor_end_x,
+        )
+        corridor_hi = max(
+            self._corridor_start_x,
+            self._corridor_end_x,
+        )
+        
+        entry_x = None
+        exit_x = None
 
         with self._latest_unexpected_lock:
             instant_centroids = list(self._latest_unexpected_centroids)
@@ -1312,17 +1307,31 @@ class UnexpectedObstacleDetector(Node):
             obstacle_in_corridor = self._is_in_corridor(*obstacle_xy)
 
             if obstacle_in_corridor:
-                obstacle_speed_mps = self._tracked_speed_near(*obstacle_xy)
+                if robot_x <= obstacle_xy[0]:
+                    entry_x = corridor_lo
+                    exit_x = corridor_hi
+                else:
+                    entry_x = corridor_hi
+                    exit_x = corridor_lo
+            
+                self._event_depth_bounds[event_id] = (
+                    float(entry_x),
+                    float(exit_x),
+                )
+            
+                obstacle_speed_mps = self._tracked_speed_near(
+                    *obstacle_xy
+                )
+            
                 if obstacle_speed_mps >= 0.0:
-                    self._event_speed_mps[event_id] = float(obstacle_speed_mps)
-
-                # Insert the temporary residual entry at the observed centroid.
-                # Do not snap it to the corridor center.
-                self._insert_temporary_cost(event_id, obstacle_xy, now)
-            else:
-                self.get_logger().info(
-                    f"[EVENT] obstacle={obstacle_xy} outside configured corridor; "
-                    "custom residual insertion skipped"
+                    self._event_speed_mps[event_id] = float(
+                        obstacle_speed_mps
+                    )
+            
+                self._insert_temporary_cost(
+                    event_id,
+                    obstacle_xy,
+                    now,
                 )
         else:
             self.get_logger().info(
@@ -1371,8 +1380,16 @@ class UnexpectedObstacleDetector(Node):
                     else None
                 ),
                 "obstacle_in_corridor": bool(obstacle_in_corridor),
-                "corridor_entry_x": float(entry_x),
-                "corridor_exit_x": float(exit_x),
+                "corridor_entry_x": (
+                    float(entry_x)
+                    if entry_x is not None
+                    else None
+                ),
+                "corridor_exit_x": (
+                    float(exit_x)
+                    if exit_x is not None
+                    else None
+                ),
                 "tag_group_id": None,
                 "tag_repeat_count_in_mission": 0,
             }
