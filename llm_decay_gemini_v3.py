@@ -298,88 +298,187 @@ def build_prompt(
     archive: List[EventCase],
     max_recent_cases: int,
 ) -> str:
-    tags = sorted({c.tag_key for c in current_cases})
-    mission_id = current_cases[0].mission_id if current_cases else "unknown_mission"
+    tags = sorted({
+        c.tag_key
+        for c in current_cases
+    })
+
+    mission_id = (
+        current_cases[0].mission_id
+        if current_cases
+        else "unknown_mission"
+    )
 
     lines: List[str] = [
         "You are a TTL policy optimizer for a robot navigation system.",
         "depth_corrected_ttl = TTL_base * (1 - depth_ratio).",
+        "",
         "Goal:",
-        "Find the minimum TTL_base so the robot encounters each obstacle exactly once (repeat=1),",
-        "avoids repeated detours/replanning, and minimizes stale residual cost.",
-        "Always propose ttl_base_s, not depth_corrected_ttl or applied_ttl_s.",
+        "Find the minimum TTL_base so the robot encounters each obstacle",
+        "exactly once (repeat=1), avoids repeated detours/replanning,",
+        "and minimizes stale residual cost.",
+        "Always propose ttl_base_s, not depth_corrected_ttl.",
         "Bias toward smaller values.",
         "",
-        f"IMPORTANT: Use ONLY these exact tag_key values: {', '.join(tags)}.",
-        "Do not invent or substitute other tag names.",
+        "IMPORTANT:",
+        f"You MUST use ONLY these exact tag_key values: {', '.join(tags)}.",
+        "Do NOT invent or substitute other tag names",
+        '(e.g., do not use "vehicle" if "forklift" is listed).',
         "",
         "Rules:",
-        "R1 repeat>=2: TTL_base is too short -> RAISE, but incrementally. Do not jump to a large value at once.",
-        "R2 repeat=1, depth<0.5: depth-corrected TTL was relatively long -> HOLD or make a small decrease, but never at or below a confirmed insufficient bound.",
-        "R3 repeat=1, depth>=0.5: depth-corrected TTL was short -> RAISE proportionally. Treat this as a weak signal.",
-        "R4 Minimum: prefer the lowest TTL_base supported by past repeat=1 cases.",
-        "R5 Converged: HOLD with confidence=0.9 when a confirmed insufficient bound exists, current TTL_base is above that bound, and neither current nor retrieved cases show stale-cost evidence requiring a decrease or expiration-related replanning requiring an increase.",
-        "confirmed_insufficient_bound = maximum policy-before TTL_base where repeat>=2 was observed.",
-        "Do not propose at or below confirmed_insufficient_bound.",
+        "R1 repeat>=2:",
+        "TTL_base too short -> RAISE, but incrementally.",
+        "Do NOT jump to a large value at once.",
+        "Small consistent raises are preferred.",
+        "",
+        "R2 repeat=1, depth<0.5:",
+        "depth_corrected_ttl was long -> HOLD or small decrease",
+        "(not below confirmed_insufficient_bound).",
+        "",
+        "R3 repeat=1, depth>=0.5:",
+        "depth_corrected_ttl was short -> RAISE proportionally.",
+        "Treat as weak signal.",
+        "",
+        "R4 Minimum:",
+        "Prefer lowest TTL_base with past repeat=1.",
+        "",
+        "R5 Converged:",
+        "HOLD with confidence=0.9 if:",
+        "- confirmed_insufficient_bound exists,",
+        "- current TTL_base > bound, and",
+        "- no stale-cost evidence is observed in the current",
+        "or retrieved cases.",
+        "",
+        "confirmed_insufficient_bound:",
+        "max TTL_base where repeat>=2 ever occurred.",
+        "Do NOT propose at or below this.",
+        "Confidence -0.25 if violated.",
         "",
         "Decay table (current):",
     ]
 
     for tag in tags:
-        ttl = decay_table.get(tag, {}).get("ttl")
-        lines.append(f"  {tag}: {_fmt(ttl, 3, 's')}")
+        ttl = decay_table.get(
+            tag,
+            {},
+        ).get("ttl")
 
-    lines += ["", "Current mission:"]
-    for tag in tags:
-        tag_cases = [c for c in current_cases if c.tag_key == tag]
-        max_repeat = max((c.repeat_count_in_mission for c in tag_cases), default=1)
-        reencounters = sum(1 for c in tag_cases if c.repeat_count_in_mission >= 2)
         lines.append(
-            f"  {tag}: count={len(tag_cases)} max_repeat={max_repeat} reencounters={reencounters}"
+            f"{tag}: {_fmt(ttl, 3, 's')}"
         )
-        for c in tag_cases:
-            lines.append(
-                "    "
-                f"event={c.event_id} repeat={c.repeat_count_in_mission} "
-                f"ttl_base={_fmt(c.ttl_base_s, 3, 's')} "
-                f"depth={_fmt(c.depth_ratio, 3)} "
-                f"depth_corrected={_fmt(c.depth_corrected_ttl_s, 3, 's')} "
-                f"applied={_fmt(c.applied_ttl_s, 3, 's')} "
-                f"detour_ratio={_fmt(c.detour_ratio, 3)} "
-                f"evidence={c.evidence or '?'}"
-            )
 
-    lines += ["", "Retrieved recent cases:"]
+    lines += [
+        "",
+        "Current mission:",
+    ]
+
     for tag in tags:
-        recent = recent_same_tag_cases(archive, tag, max_recent_cases, mission_id)
-        bound = confirmed_insufficient_bound(recent)
-        lines.append(
-            f"  {tag}: confirmed_insufficient_bound="
-            + (f"{bound:.3f}s" if bound is not None else "unknown")
+        cases = [
+            c
+            for c in current_cases
+            if c.tag_key == tag
+        ]
+
+        max_repeat = max(
+            (
+                c.repeat_count_in_mission
+                for c in cases
+            ),
+            default=1,
         )
-        if not recent:
-            lines.append("    none")
-            continue
-        for c in recent:
+
+        reencounters = sum(
+            1
+            for c in cases
+            if c.repeat_count_in_mission >= 2
+        )
+
+        lines.append(
+            f"{tag}: count={len(cases)} "
+            f"max_repeat={max_repeat} "
+            f"reencounters={reencounters}"
+        )
+
+        for c in cases:
             lines.append(
-                "    "
+                f"tag={tag} "
                 f"repeat={c.repeat_count_in_mission} "
                 f"ttl_base={_fmt(c.ttl_base_s, 3, 's')} "
                 f"depth={_fmt(c.depth_ratio, 3)} "
-                f"applied={_fmt(c.applied_ttl_s, 3, 's')} "
-                f"proposal={_fmt(c.proposed_ttl_s, 3, 's')} "
-                f"proposal_conf={_fmt(c.llm_proposal_confidence, 2)} "
-                f"decision={c.approval_status or '?'} "
-                f"reason={c.proposal_reason or '?'} "
-                f"human_feedback={c.human_feedback or '?'}"
+                f"applied={_fmt(c.applied_ttl_s, 3, 's')}"
             )
 
     lines += [
         "",
-        "Output exactly one JSON object and nothing else.",
-        f"Use ONLY these tag_key values: {', '.join(tags)}",
-        '{"updates":[{"tag_key":"...","ttl_base_s":0.0,"confidence":0.0,"reason":"..."}],"notes":null}',
+        "Past cases:",
     ]
+
+    for tag in tags:
+        recent = recent_same_tag_cases(
+            archive,
+            tag,
+            max_recent_cases,
+            mission_id,
+        )
+
+        bound = confirmed_insufficient_bound(
+            recent
+        )
+
+        failures = [
+            c
+            for c in recent
+            if c.repeat_count_in_mission >= 2
+        ]
+
+        successful = [
+            c
+            for c in recent
+            if c.repeat_count_in_mission == 1
+        ]
+
+        lines.append(
+            f"{tag}: confirmed_insufficient_bound="
+            + (
+                f"{bound:.3f}s"
+                if bound is not None
+                else "unknown"
+            )
+        )
+
+        lines.append(
+            f"(n={len(failures)} failures)"
+        )
+
+        lines.append(
+            "repeat=1 cases "
+            f"(oldest->newest, n={len(successful)}):"
+        )
+
+        for c in successful:
+            lines.append(
+                f"ttl={_fmt(c.ttl_base_s, 3, 's')} "
+                f"depth={_fmt(c.depth_ratio, 3)} "
+                f"applied={_fmt(c.applied_ttl_s, 3, 's')}"
+            )
+
+    lines += [
+        "",
+        "Output JSON only.",
+        f"Use ONLY these tag_key values: {', '.join(tags)}",
+        "{",
+        '  "updates": [',
+        "    {",
+        '      "tag_key": "...",',
+        '      "ttl_base_s": 0.0,',
+        '      "confidence": 0.0,',
+        '      "reason": "..."',
+        "    }",
+        "  ],",
+        '  "notes": null',
+        "}",
+    ]
+
     return "\n".join(lines)
 
 
@@ -484,33 +583,56 @@ def call_gemini(
 # Application / optional standalone archive append
 # -----------------------------------------------------------------------------
 
-
 def filter_and_guard_proposal(
     proposal: GeminiProposal,
     allowed_tags: List[str],
     archive: List[EventCase],
     current_mission_id: str,
 ) -> GeminiProposal:
+    # These arguments are retained for CLI/API compatibility.
+    del archive
+    del current_mission_id
+
     allowed = set(allowed_tags)
     out: List[TagUpdate] = []
+
     for update in proposal.updates:
-        tag = normalize_tag_key(update.tag_key)
+        tag = normalize_tag_key(
+            update.tag_key
+        )
+
         if tag not in allowed:
             continue
-        ttl = min(BASE_TTL_MAX_S, max(BASE_TTL_MIN_S, float(update.ttl_base_s)))
-        recent = recent_same_tag_cases(archive, tag, 30, current_mission_id)
-        bound = confirmed_insufficient_bound(recent)
-        if bound is not None and ttl <= bound:
-            ttl = min(BASE_TTL_MAX_S, bound + 0.1)
+
+        ttl = min(
+            BASE_TTL_MAX_S,
+            max(
+                BASE_TTL_MIN_S,
+                float(update.ttl_base_s),
+            ),
+        )
+
         out.append(
             TagUpdate(
                 tag_key=tag,
                 ttl_base_s=ttl,
-                confidence=min(1.0, max(0.0, float(update.confidence))),
-                reason=str(update.reason or ""),
+                confidence=min(
+                    1.0,
+                    max(
+                        0.0,
+                        float(update.confidence),
+                    ),
+                ),
+                reason=str(
+                    update.reason or ""
+                ),
             )
         )
-    return GeminiProposal(updates=out, notes=proposal.notes)
+
+    return GeminiProposal(
+        updates=out,
+        notes=proposal.notes,
+    )
 
 
 def apply_updates(decay_table: Dict[str, Dict[str, float]], proposal: GeminiProposal) -> int:
