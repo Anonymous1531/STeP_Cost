@@ -406,8 +406,10 @@ def build_prompt(
                 f"ttl_base={_fmt(c.ttl_base_s, 3, 's')} "
                 f"depth={_fmt(c.depth_ratio, 3)} "
                 f"applied={_fmt(c.applied_ttl_s, 3, 's')}"
-                f"evidence={c.evidence or '?'}"
             )
+        lines.append(
+            f"evidence={c.evidence or '?'}"
+        )
 
     lines += [
         "",
@@ -461,6 +463,8 @@ def build_prompt(
                 f"ttl={_fmt(c.ttl_base_s, 3, 's')} "
                 f"depth={_fmt(c.depth_ratio, 3)} "
                 f"applied={_fmt(c.applied_ttl_s, 3, 's')}"
+            )
+            lines.append(
                 f"evidence={c.evidence or '?'}"
             )
 
