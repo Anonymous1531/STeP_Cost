@@ -33,7 +33,7 @@ private:
   void objectPositionsCallback(const geometry_msgs::msg::PoseArray::SharedPtr msg);
 
   std::string object_topic_name_{"/object_world_positions"};
-  double avoidance_radius_{2.0};
+  double avoidance_radius_{1.0};
   double bounds_padding_cells_{10.0};
   bool enabled_{true};
 
