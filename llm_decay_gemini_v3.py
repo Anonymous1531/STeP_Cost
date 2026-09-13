@@ -407,9 +407,9 @@ def build_prompt(
                 f"depth={_fmt(c.depth_ratio, 3)} "
                 f"applied={_fmt(c.applied_ttl_s, 3, 's')}"
             )
-        lines.append(
-            f"evidence={c.evidence or '?'}"
-        )
+            lines.append(
+                f"evidence={c.evidence or '?'}"
+            )
 
     lines += [
         "",
@@ -466,6 +466,19 @@ def build_prompt(
             )
             lines.append(
                 f"evidence={c.evidence or '?'}"
+            )
+        lines.append(
+            f"retrieved supervisory records "
+            f"(oldest->newest, n={len(recent)}):"
+        )
+
+        for c in recent:
+            lines.append(
+                f"repeat={c.repeat_count_in_mission} "
+                f"proposal={_fmt(c.proposed_ttl_s, 3, 's')} "
+                f"decision={c.approval_status or '?'} "
+                f"reason={c.proposal_reason or '?'} "
+                f"human_feedback={c.human_feedback or '?'}"
             )
 
     lines += [
