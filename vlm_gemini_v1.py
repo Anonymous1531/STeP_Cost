@@ -121,6 +121,7 @@ def build_prompt(user_prompt: str, allowed_tags: List[str]) -> str:
         "Identify the OBJECT TYPE only (do NOT include speed class).\n"
         "Do NOT append :slow or :fast. Return base tag only.\n"
         "IMPORTANT: You MUST choose one of the allowed tags.\n"
+        "Do NOT use nav_anomaly.\n"
         "If the object is ambiguous, choose the closest allowed tag, assign a low confidence score, "
         "and describe the ambiguity in evidence.\n"
         "STRICT OUTPUT FORMAT:\n"
