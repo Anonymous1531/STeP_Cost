@@ -27,7 +27,7 @@ void ObjectAvoidanceLayer::onInitialize()
   nav2_util::declare_parameter_if_not_declared(
     node, name_ + ".object_positions_topic", rclcpp::ParameterValue("/object_world_positions"));
   nav2_util::declare_parameter_if_not_declared(
-    node, name_ + ".avoidance_radius", rclcpp::ParameterValue(2.0));
+    node, name_ + ".avoidance_radius", rclcpp::ParameterValue(1.0));
   nav2_util::declare_parameter_if_not_declared(
     node, name_ + ".bounds_padding_cells", rclcpp::ParameterValue(10.0));
   nav2_util::declare_parameter_if_not_declared(
