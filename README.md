@@ -53,7 +53,7 @@ global_costmap:
         plugin: "my_costmap_layers::ObjectAvoidanceLayer"
         enabled: true
         object_positions_topic: "/object_world_positions"
-        avoidance_radius: 2.0
+        avoidance_radius: 1.0
         bounds_padding_cells: 10.0
 ```
 
