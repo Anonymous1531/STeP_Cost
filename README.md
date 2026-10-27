@@ -207,7 +207,7 @@ ros2 topic echo /llm_decay/result
 | `llm_decay_rag_enable` | `false` | Enable retrieval-augmented memory for LLM |
 | `llm_decay_confidence_threshold` | `0.9` | Confidence threshold for auto-acceptance |
 | `llm_decay_approval_mode` | `ours` | Approval mode: `auto`, `ours`, or `human_all` |
-| `llm_decay_retrieval_max_repeat1_cases` | `30` | Maximum retrieved past cases per tag |
+| `llm_decay_retrieval_max_repeat1_cases` | `30` | Maximum recent repeat=1 cases per tag |
 | `enable_global_clear_on_expire` | `false` | Clear the entire global costmap when residual costs expire |
 
 ---
