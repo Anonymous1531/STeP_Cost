@@ -12,6 +12,8 @@ The framework identifies detour-inducing obstacle situations during navigation, 
 
 **STeP-Cost is designed as a plug-in addition to an existing Nav2 stack.** It does not replace the planner or controller — it only extends the global costmap with a learned cost persistence policy. You can integrate `policy_bridge` and `my_costmap_layers` into your own ROS 2 navigation environment.
 
+This repository provides a reference implementation of the core framework. Experiment-specific runners, frozen configurations, and raw experiment logs are not included. The provided defaults and integration examples may differ from the profile-specific settings reported in the manuscript.
+
 ---
 
 ## 📦 Components
@@ -74,7 +76,7 @@ policy_bridge:
     # Half-width of each corridor lane (meters)
     corridor_y_half_width: 2.5
 
-    # Margin at corridor entrance/exit to exclude edge regions
+    # Longitudinal margin extending both configured corridor endpoints (meters).
     corridor_x_margin: 1.0
 ```
 
@@ -189,7 +191,7 @@ ros2 topic echo /llm_decay/result
 | `corridor_end_x` | `32.0` | The other longitudinal corridor endpoint (map frame) |
 | `corridor_y_centers` | `[0.0, ...]` | Y centers of corridor lanes (map frame) |
 | `corridor_y_half_width` | `2.5` | Half-width of each corridor lane (meters) |
-| `corridor_x_margin` | `1.0` | Margin at corridor entrance/exit (meters) |
+| `corridor_x_margin` | `1.0` | Longitudinal margin extending both configured corridor endpoints (meters). |
 | `default_cost_ttl_s` | `6.0` | Fallback TTL before a compound tag is confirmed |
 | `max_range_m` | `6.0` | Maximum LiDAR range for obstacle detection |
 | `min_range_m` | `0.10` | Minimum LiDAR range for obstacle detection |
