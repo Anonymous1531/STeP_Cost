@@ -417,28 +417,30 @@ def build_prompt(
     ]
 
     for tag in tags:
-        recent = recent_same_tag_cases(
+        # Bound: all retained same-tag history; only repeat=1 examples are capped.
+        past = recent_same_tag_cases(
             archive,
             tag,
-            max_recent_cases,
+            len(archive),
             mission_id,
         )
+        past = [c for c in past if c.ttl_base_s is not None]
 
         bound = confirmed_insufficient_bound(
-            recent
+            past
         )
 
         failures = [
             c
-            for c in recent
+            for c in past
             if c.repeat_count_in_mission >= 2
         ]
 
         successful = [
             c
-            for c in recent
+            for c in past
             if c.repeat_count_in_mission == 1
-        ]
+        ][-max(1, max_recent_cases) :]
 
         lines.append(
             f"{tag}: confirmed_insufficient_bound="
@@ -467,19 +469,10 @@ def build_prompt(
             lines.append(
                 f"evidence={c.evidence or '?'}"
             )
-        lines.append(
-            f"retrieved supervisory records "
-            f"(oldest->newest, n={len(recent)}):"
-        )
-
-        for c in recent:
-            lines.append(
-                f"repeat={c.repeat_count_in_mission} "
-                f"proposal={_fmt(c.proposed_ttl_s, 3, 's')} "
-                f"decision={c.approval_status or '?'} "
-                f"reason={c.proposal_reason or '?'} "
-                f"human_feedback={c.human_feedback or '?'}"
-            )
+            lines.append(f"proposal={_fmt(c.proposed_ttl_s, 3, 's')}")
+            lines.append(f"decision={c.approval_status or '?'}")
+            lines.append(f"reason={c.proposal_reason or '?'}")
+            lines.append(f"human_feedback={c.human_feedback or '?'}")
 
     lines += [
         "",
